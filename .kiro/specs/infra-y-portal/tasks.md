@@ -30,7 +30,7 @@ Despliegue (lo hace la operadora, Kiro no ejecuta comandos contra AWS): después
   - Pruebas: nivel, perfil, filtros y fuerzas, información sensible, ausencia de `contextualGroundingPolicyConfig`, `description` no vacía, variables y permisos del núcleo.
   - _Requisitos: 5, 7.2, 7.5_
 
-- [ ] 4. Conectores, flujo transaccional y núcleo completo
+- [x] 4. Conectores, flujo transaccional y núcleo completo
   - Método `conectores()`: Lambdas `eva-dev-skkeda` (con `TABLA_ESTADO` y acceso a la tabla) y `eva-dev-jira` (sin permisos extra), cada una con su rol; máquina Express `eva-dev-transaccional` con `Choice` por `skkeda:*` y `jira:*`, `Pass` `DENIED` en `otherwise` y registro con `includeExecutionData: false`.
   - Al núcleo: `FLUJO_TRANSACCIONAL_ARN` y `states:StartSyncExecution`. Verificar la lista completa de permisos del núcleo y que no tenga `lambda:InvokeFunction`.
   - Pruebas: Lambdas y roles, ramas y `DENIED`, registro, quién puede invocar los conectores (solo el rol de la máquina), lista exacta de acciones del núcleo.

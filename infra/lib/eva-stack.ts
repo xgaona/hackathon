@@ -16,6 +16,8 @@ import * as logs from 'aws-cdk-lib/aws-logs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import * as sfn from 'aws-cdk-lib/aws-stepfunctions';
+import * as tasks from 'aws-cdk-lib/aws-stepfunctions-tasks';
 import type { Construct } from 'constructs';
 import { nombre } from './nombres';
 import { investigacionActiva, titulosSeccion } from './titulos-seccion';
@@ -53,6 +55,7 @@ export class EvaStack extends Stack {
     this.portal();
     this.baseConocimiento();
     this.guardrail();
+    this.conectores();
   }
 
   /** Configuración común de las Lambdas: Node 22, arm64 y SDK empaquetado (lección 9). */
@@ -384,6 +387,64 @@ export class EvaStack extends Stack {
         actions: ['bedrock:InvokeModel'],
         resources: [`arn:${this.partition}:bedrock:${this.region}::foundation-model/${MODEL_ID}`],
       }),
+    );
+  }
+
+  /**
+   * Conectores y flujo transaccional (tarea 4). Solo la máquina invoca a los conectores (invariante 2):
+   * el núcleo recibe states:StartSyncExecution y nunca lambda:InvokeFunction.
+   */
+  private conectores(): void {
+    const skkeda = this.lambdaNode('Skkeda', 'skkeda', 'src/conectores/skkeda/handler.ts', Duration.seconds(10));
+    skkeda.addEnvironment('TABLA_ESTADO', this.tabla.tableName);
+    this.tabla.grantReadWriteData(skkeda);
+
+    // Jira es un mock de solo lectura: sin variables ni permisos más allá de sus registros.
+    const jira = this.lambdaNode('Jira', 'jira', 'src/conectores/jira/handler.ts', Duration.seconds(10));
+
+    const invocar = (id: string, funcion: lambda.IFunction): tasks.LambdaInvoke =>
+      new tasks.LambdaInvoke(this, id, {
+        lambdaFunction: funcion,
+        // La salida es el InvokeResult tal cual, sin la envoltura de la invocación.
+        payloadResponseOnly: true,
+      });
+
+    const denegado = new sfn.Pass(this, 'ConectorDesconocido', {
+      parameters: {
+        'correlationId.$': '$.correlationId',
+        status: 'DENIED',
+        origin: 'eva',
+        error: {
+          code: 'UNKNOWN_CONNECTOR',
+          message: 'No hay un conector para esa capacidad.',
+          'correlationId.$': '$.correlationId',
+        },
+      },
+    });
+
+    const enrutar = new sfn.Choice(this, 'PorConector')
+      .when(sfn.Condition.stringMatches('$.capabilityId', 'skkeda:*'), invocar('InvocarSkkeda', skkeda))
+      .when(sfn.Condition.stringMatches('$.capabilityId', 'jira:*'), invocar('InvocarJira', jira))
+      .otherwise(denegado);
+
+    const maquina = new sfn.StateMachine(this, 'Transaccional', {
+      stateMachineName: nombre(this.ambiente, 'transaccional'),
+      stateMachineType: sfn.StateMachineType.EXPRESS,
+      definitionBody: sfn.DefinitionBody.fromChainable(enrutar),
+      timeout: Duration.seconds(25),
+      logs: {
+        destination: new logs.LogGroup(this, 'TransaccionalLogs', {
+          retention: logs.RetentionDays.ONE_WEEK,
+          removalPolicy: RemovalPolicy.DESTROY,
+        }),
+        level: sfn.LogLevel.ERROR,
+        includeExecutionData: false,
+      },
+    });
+
+    this.funcionNucleo.addEnvironment('FLUJO_TRANSACCIONAL_ARN', maquina.stateMachineArn);
+    this.funcionNucleo.addToRolePolicy(
+      new iam.PolicyStatement({ actions: ['states:StartSyncExecution'], resources: [maquina.stateMachineArn] }),
     );
   }
 }

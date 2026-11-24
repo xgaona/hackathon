@@ -106,6 +106,7 @@ describe('Tarea 1: Lambda del nÃºcleo', () => {
     const funciones = plantilla.findResources('AWS::Lambda::Function', { Properties: { FunctionName: 'eva-dev-nucleo' } });
     const entorno = Object.values(funciones)[0].Properties.Environment.Variables as Record<string, unknown>;
     expect(Object.keys(entorno).sort()).toEqual([
+      'FLUJO_TRANSACCIONAL_ARN',
       'GUARDRAIL_ID',
       'GUARDRAIL_VERSION',
       'INVESTIGACION_ACTIVA',
@@ -127,9 +128,15 @@ describe('Tarea 1: Lambda del nÃºcleo', () => {
     expect(valor(sintetizar({ investigacion: 'true' }))).toBe('true');
   });
 
-  it('solo tiene permisos sobre la tabla y no puede invocar Lambdas', () => {
+  it('tiene permisos sobre la tabla y su rol no puede invocar Lambdas (invariante 2)', () => {
     const plantilla = sintetizar();
-    const acciones = declaraciones(plantilla).flatMap((d) => d.acciones);
+    const politicasNucleo = Object.values(plantilla.findResources('AWS::IAM::Policy')).filter((p) =>
+      JSON.stringify(p.Properties.Roles).includes('NucleoServiceRole'),
+    );
+    expect(politicasNucleo.length).toBeGreaterThan(0);
+    const acciones = politicasNucleo
+      .flatMap((p) => p.Properties.PolicyDocument.Statement as { Action: string | string[] }[])
+      .flatMap((d) => ([] as string[]).concat(d.Action));
     expect(acciones.some((a) => a.startsWith('lambda:'))).toBe(false);
     plantilla.hasResourceProperties('AWS::IAM::Policy', {
       PolicyDocument: {
@@ -464,7 +471,20 @@ describe('Seguridad transversal', () => {
   });
 
   it('Resource "*" solo aparece en acciones que AWS no permite acotar', () => {
-    const permitidas = ['cloudfront:GetInvalidation', 'cloudfront:CreateInvalidation'];
+    const permitidas = [
+      // Invalidación del BucketDeployment del portal.
+      'cloudfront:GetInvalidation',
+      'cloudfront:CreateInvalidation',
+      // Entrega de registros de Step Functions: estas acciones no admiten recursos concretos.
+      'logs:CreateLogDelivery',
+      'logs:GetLogDelivery',
+      'logs:UpdateLogDelivery',
+      'logs:DeleteLogDelivery',
+      'logs:ListLogDeliveries',
+      'logs:PutResourcePolicy',
+      'logs:DescribeResourcePolicies',
+      'logs:DescribeLogGroups',
+    ];
     for (const d of declaraciones(plantilla)) {
       if (d.recursos.includes('*')) {
         expect(d.acciones.every((a) => permitidas.includes(a))).toBe(true);
