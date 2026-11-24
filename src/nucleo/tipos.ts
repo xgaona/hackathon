@@ -7,7 +7,13 @@ export interface Identidad {
   grupos: string[];
 }
 
-export type TipoIntencion = 'SALUDO' | 'PREGUNTA' | 'BUSCAR_DOCUMENTO' | 'ACCION';
+export type TipoIntencion =
+  | 'SALUDO'
+  | 'PREGUNTA'
+  | 'BUSCAR_DOCUMENTO'
+  | 'ACCION'
+  | 'INVESTIGACION'
+  | 'ACLARAR';
 
 /** Lo que propone el clasificador. Es solo una sugerencia hasta que el código la valida. */
 export interface Propuesta {
@@ -15,6 +21,10 @@ export interface Propuesta {
   consulta?: string;
   capabilityId?: string;
   params?: Record<string, unknown>;
+  /** Solo existe cuando INVESTIGACION_ACTIVA es true. */
+  subpreguntas?: string[];
+  /** Solo existe cuando INVESTIGACION_ACTIVA es true. */
+  aclaracion?: string;
 }
 
 /** Pedido de acción que quedó incompleto y se completa con el mensaje siguiente. */

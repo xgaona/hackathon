@@ -55,13 +55,13 @@ Recortes respecto a `requirements.md`/`design.md`: sin deduplicación por `messa
 
 El MVP no depende de estas tareas. Van en su propio commit y se apagan sin `-c investigacion=true`.
 
-- [ ]* 8. Módulo de investigación y aclaraciones
+- [x]* 8. Módulo de investigación y aclaraciones
   - Crear `investigacion.ts`: `Retrieve` por subpregunta en paralelo con `FILTRO_GENERAL` y el umbral de preguntas; una reformulación por subpregunta sin pasajes (`Converse`, temperatura 0, salida `{ reformulada: string }` validada con Ajv); máximo 2 rondas y 6 `Retrieve` (el contador se revisa antes de cada llamada); corte a los 20 s sintetizando con lo encontrado; sin pasajes en ninguna → `NO_ANSWER` sin llamar al modelo. Síntesis con el prompt de conocimiento más las dos reglas (responder cada parte en orden y una frase "No encontré …" por subpregunta sin fuente), guardrail de salida, citas sin duplicados y `researchSteps` (subpregunta, encontrado, reformulada, títulos; nunca texto de pasajes).
   - En `intencion.ts` y `handler.ts`, solo con `INVESTIGACION_ACTIVA = "true"`: `esquemaPropuesta(true)` suma `INVESTIGACION` (2 a 4 subpreguntas) y `ACLARAR`; el prompt los describe; `ACLARAR` → `NEEDS_CLARIFICATION` con la pregunta en `reply` y `preguntaOriginal` guardada en el turno; el mensaje siguiente se combina en una sola `consulta`. Con la variable en `false` el esquema y el prompt no los incluyen. Una acción dentro de una pregunta compuesta se propone en el turno siguiente.
   - Requisitos: 16, 17, 18.
   - Hecho cuando: `npm run build` y `npm run lint` pasan.
 
-- [ ]* 9. Pruebas del módulo de investigación
+- [x]* 9. Pruebas del módulo de investigación
   - Agregar a `simulados.ts` y `src/nucleo/investigacion.test.ts` (y a `handler.test.ts` donde aplique): pregunta compuesta con dos documentos (viajes y gastos y reembolsos) → citas de ambos y `researchSteps`; subpregunta sin pasajes → una reformulación y "No encontré"; nunca más de 6 `Retrieve` ni 2 rondas; con `INVESTIGACION_ACTIVA` en `false` una pregunta compuesta va por el flujo normal y el esquema rechaza `INVESTIGACION` y `ACLARAR`; pregunta ambigua → `NEEDS_CLARIFICATION` y el turno siguiente ("internacional") responde la pregunta combinada; `NO_ANSWER` sin modelo cuando ninguna subpregunta tiene pasajes; corte por tiempo; `researchSteps` y logs sin texto de pasajes.
   - Requisitos: 19.
   - Hecho cuando: `npm run build`, `npm run lint` y `npm test` pasan.

@@ -5,6 +5,7 @@ import { crearDependenciasReales, leerConfig, type Config, type Dependencias } f
 import { crearEstado } from './estado';
 import { extraerIdentidad } from './identidad';
 import { clasificar } from './intencion';
+import { investigar } from './investigacion';
 import { cargarCatalogo } from './politica';
 import { codigoDeError, log } from './registro';
 import { confirmar, manejarAccion } from './acciones';
@@ -116,9 +117,29 @@ export function crearManejador(deps: Dependencias, cfg: Config) {
         return responderBusqueda(ctx, propuesta.consulta?.trim() || mensaje);
       case 'ACCION':
         return responderAccion(ctx, propuesta, turnos);
+      case 'INVESTIGACION':
+        return responderInvestigacion(ctx, propuesta.subpreguntas ?? []);
+      case 'ACLARAR':
+        return {
+          status: 'NEEDS_CLARIFICATION',
+          reply: propuesta.aclaracion ?? '¿Puedes darme un poco más de información?',
+          turnoExtra: { preguntaOriginal: mensaje },
+        };
       default:
-        // Las demás ramas se agregan en las tareas siguientes.
         return { status: 'FAILED', reply: MENSAJE_ERROR };
+    }
+  }
+
+  async function responderInvestigacion(ctx: Contexto, subpreguntas: string[]): Promise<Salida> {
+    try {
+      return await investigar(ctx, subpreguntas);
+    } catch (error) {
+      log('ERROR', 'investigacion_fallida', {
+        correlationId: ctx.correlationId,
+        conversationId: ctx.conversationId,
+        codigo: codigoDeError(error),
+      });
+      return { status: 'FAILED', reply: MENSAJE_ERROR };
     }
   }
 

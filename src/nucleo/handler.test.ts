@@ -59,7 +59,7 @@ interface Entorno {
 
 let actual: Entorno | undefined;
 
-function crearEntorno(): Entorno {
+function crearEntorno(investigacionActiva = false): Entorno {
   const sim = crearSimulados();
   sim.agente.responder = () => [VIAJES, RUIDO];
   const cfg = leerConfig({
@@ -69,6 +69,7 @@ function crearEntorno(): Entorno {
     GUARDRAIL_ID: 'gr-1',
     GUARDRAIL_VERSION: '1',
     TITULOS_SECCION: TITULOS,
+    INVESTIGACION_ACTIVA: investigacionActiva ? 'true' : 'false',
   });
   const manejador = crearManejador(sim.deps, cfg);
   const claimsPorDefecto = { sub: SUB, 'cognito:groups': 'eva-users' };
@@ -780,5 +781,121 @@ describe('calendario y secciones', () => {
       { seccion: 'Viáticos', texto: 'Otro texto.' },
     ]);
     expect(partirPorSecciones('Texto sin secciones', titulos)).toEqual([{ texto: 'Texto sin secciones' }]);
+  });
+});
+
+
+describe('módulo opcional de investigación en la API', () => {
+  const GASTOS: ResultadoKb = {
+    texto: '## Legalización Los gastos se legalizan en la plataforma de gastos dentro de los 5 días hábiles siguientes al regreso.',
+    score: 0.72,
+    documentId: 'DOC-SYN-0002',
+    title: 'Política de gastos y reembolsos',
+    updatedAt: '2026-09-15',
+  };
+
+  it('pregunta compuesta con dos documentos → citas de ambos y researchSteps', async () => {
+    const e = crearEntorno(true);
+    e.sim.agente.responder = (consulta) => (consulta.includes('legalizan') ? [GASTOS] : [VIAJES]);
+    e.sim.bedrock.colaClasificador.push(
+      clas({
+        tipo: 'INVESTIGACION',
+        subpreguntas: [
+          '¿Con cuánta anticipación se solicita un viaje nacional?',
+          '¿Cómo se legalizan los gastos después del viaje?',
+        ],
+      }),
+    );
+    e.sim.bedrock.colaRespuestas.push(
+      'El viaje nacional se solicita con 5 días hábiles de anticipación [1]. Los gastos se legalizan dentro de los 5 días hábiles siguientes al regreso [3].',
+    );
+
+    const { cuerpo } = await e.enviar(
+      'Voy a viajar para visitar un cliente: ¿con cuánta anticipación lo pido y cómo legalizo los gastos?',
+    );
+
+    expect(cuerpo.status).toBe('ANSWERED');
+    expect(cuerpo.citations?.map((c) => c.documentId)).toEqual(['DOC-SYN-0001', 'DOC-SYN-0002']);
+    expect(cuerpo.researchSteps).toEqual([
+      {
+        subpregunta: '¿Con cuánta anticipación se solicita un viaje nacional?',
+        encontrado: true,
+        reformulada: false,
+        documentos: ['Política de viajes corporativos'],
+      },
+      {
+        subpregunta: '¿Cómo se legalizan los gastos después del viaje?',
+        encontrado: true,
+        reformulada: false,
+        documentos: ['Política de gastos y reembolsos'],
+      },
+    ]);
+    expect(JSON.stringify(cuerpo.researchSteps)).not.toContain('5 días hábiles');
+  });
+
+  it('subpregunta sin pasajes se reformula una vez y la respuesta dice "No encontré"', async () => {
+    const e = crearEntorno(true);
+    e.sim.agente.responder = (consulta) => (consulta.includes('legalizan') ? [GASTOS] : []);
+    e.sim.bedrock.colaClasificador.push(
+      clas({
+        tipo: 'INVESTIGACION',
+        subpreguntas: ['¿Cuál es el plazo de aprobación del viaje?', '¿Cómo se legalizan los gastos?'],
+      }),
+    );
+    e.sim.bedrock.colaReformulaciones.push(clas({ reformulada: '¿Con cuánta anticipación se aprueba un viaje?' }));
+    e.sim.bedrock.colaRespuestas.push(
+      'No encontré el plazo de aprobación del viaje. Los gastos se legalizan en la plataforma dentro de los 5 días hábiles siguientes [1].',
+    );
+
+    const { cuerpo } = await e.enviar('¿Cuál es el plazo del viaje y cómo legalizo los gastos?');
+
+    expect(cuerpo.status).toBe('ANSWERED');
+    expect(cuerpo.reply).toContain('No encontré');
+    expect(cuerpo.researchSteps?.[0]).toMatchObject({ encontrado: false, reformulada: true });
+    expect(cuerpo.researchSteps?.[1]).toMatchObject({ encontrado: true, reformulada: false });
+    expect(e.sim.agente.llamadas).toHaveLength(3);
+    expect(e.sim.bedrock.colaReformulaciones).toHaveLength(0);
+  });
+
+  it('con INVESTIGACION_ACTIVA=false una pregunta compuesta va por el flujo normal', async () => {
+    const e = crearEntorno(false);
+    e.sim.agente.responder = () => [VIAJES];
+    e.sim.bedrock.colaClasificador.push(
+      clas({ tipo: 'INVESTIGACION', subpreguntas: ['¿Cuál es el plazo?', '¿Quién aprueba?'] }),
+    );
+    e.sim.bedrock.colaRespuestas.push('Los viajes nacionales se solicitan con 5 días hábiles de anticipación [1].');
+    const mensaje = '¿Con cuánta anticipación pido el viaje y quién lo aprueba?';
+
+    const { cuerpo } = await e.enviar(mensaje);
+
+    expect(cuerpo.status).toBe('ANSWERED');
+    expect(e.sim.agente.llamadas).toHaveLength(1);
+    expect(e.sim.agente.llamadas[0].retrievalQuery?.text).toBe(mensaje);
+    expect(promptsDe(e.sim, MARCA_CLASIFICADOR)[0]).not.toContain('- INVESTIGACION:');
+    expect(promptsDe(e.sim, MARCA_CLASIFICADOR)[0]).not.toContain('- ACLARAR:');
+  });
+
+  it('pregunta ambigua → NEEDS_CLARIFICATION y el turno siguiente usa la pregunta combinada', async () => {
+    const e = crearEntorno(true);
+    e.sim.bedrock.colaClasificador.push(
+      clas({ tipo: 'ACLARAR', aclaracion: '¿El viaje es nacional o internacional?' }),
+    );
+    const primera = await e.enviar('¿Con cuánta anticipación pido un viaje?');
+    expect(primera.cuerpo.status).toBe('NEEDS_CLARIFICATION');
+    expect(primera.cuerpo.reply).toBe('¿El viaje es nacional o internacional?');
+    expect(e.sim.agente.llamadas).toHaveLength(0);
+
+    e.sim.bedrock.colaClasificador.push(
+      clas({ tipo: 'PREGUNTA', consulta: '¿Con cuánta anticipación se solicita un viaje internacional?' }),
+    );
+    e.sim.bedrock.colaRespuestas.push('Los viajes internacionales se solicitan con 15 días hábiles de anticipación [1].');
+    const segunda = await e.enviar('Internacional', { conversationId: primera.cuerpo.conversationId });
+
+    expect(segunda.cuerpo.status).toBe('ANSWERED');
+    expect(segunda.cuerpo.reply).toContain('15 días hábiles');
+    expect(e.sim.agente.llamadas[0].retrievalQuery?.text).toContain('viaje internacional');
+    const mensajeClasificador = mensajesDe(e.sim, MARCA_CLASIFICADOR)[1];
+    expect(mensajeClasificador).toContain('Solicitud original pendiente: ¿Con cuánta anticipación pido un viaje?');
+    expect(mensajeClasificador).toContain('Respuesta actual de la persona: Internacional');
   });
 });

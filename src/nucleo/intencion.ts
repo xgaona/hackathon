@@ -1,5 +1,5 @@
 // Clasificador de intención: el modelo propone un JSON cerrado y el código lo valida.
-import Ajv from 'ajv';
+import Ajv, { type ValidateFunction } from 'ajv';
 import { calendario8Dias, hoyBogota, sumarDias } from './calendario';
 import type { Catalogo } from './politica';
 import { textoDeConverse } from './respuesta';
@@ -8,23 +8,63 @@ import type { Contexto, PedidoEnCurso, Propuesta, Turno } from './tipos';
 export const MARCA_CLASIFICADOR = 'Eres el clasificador de mensajes de EVA';
 
 const TIPOS_MVP = ['SALUDO', 'PREGUNTA', 'BUSCAR_DOCUMENTO', 'ACCION'];
+const TIPOS_INVESTIGACION = ['INVESTIGACION', 'ACLARAR'];
 
-export function esquemaPropuesta(): Record<string, unknown> {
+/** El esquema opcional no acepta INVESTIGACION ni ACLARAR cuando el interruptor está apagado. */
+export function esquemaPropuesta(investigacionActiva = false): Record<string, unknown> {
+  const properties: Record<string, unknown> = {
+    tipo: { enum: investigacionActiva ? [...TIPOS_MVP, ...TIPOS_INVESTIGACION] : TIPOS_MVP },
+    consulta: { type: 'string', maxLength: 1000 },
+    capabilityId: { type: 'string', pattern: '^[A-Za-z0-9_.:-]{1,80}$' },
+    params: { type: 'object' },
+  };
+  if (investigacionActiva) {
+    properties.subpreguntas = {
+      type: 'array',
+      minItems: 2,
+      maxItems: 4,
+      items: { type: 'string', minLength: 1, maxLength: 500, pattern: '\\S' },
+    };
+    properties.aclaracion = { type: 'string', minLength: 1, maxLength: 500, pattern: '\\S' };
+  }
+  const condiciones: Record<string, unknown>[] = [
+    {
+      if: { properties: { tipo: { const: 'ACCION' } }, required: ['tipo'] },
+      then: { properties: { capabilityId: {} }, required: ['capabilityId'] },
+    },
+  ];
+  if (investigacionActiva) {
+    condiciones.push(
+      {
+        if: { properties: { tipo: { const: 'INVESTIGACION' } }, required: ['tipo'] },
+        then: { properties: { subpreguntas: {} }, required: ['subpreguntas'] },
+      },
+      {
+        if: { properties: { tipo: { const: 'ACLARAR' } }, required: ['tipo'] },
+        then: { properties: { aclaracion: {} }, required: ['aclaracion'] },
+      },
+    );
+  }
   return {
     type: 'object',
     additionalProperties: false,
     required: ['tipo'],
-    properties: {
-      tipo: { enum: TIPOS_MVP },
-      consulta: { type: 'string', maxLength: 1000 },
-      capabilityId: { type: 'string', pattern: '^[A-Za-z0-9_.:-]{1,80}$' },
-      params: { type: 'object' },
-    },
+    properties,
+    allOf: condiciones,
   };
 }
 
 const ajv = new Ajv({ strict: true });
-const validarPropuesta = ajv.compile(esquemaPropuesta());
+const validadores = new Map<boolean, ValidateFunction>();
+
+function validador(investigacionActiva: boolean): ValidateFunction {
+  let validar = validadores.get(investigacionActiva);
+  if (!validar) {
+    validar = ajv.compile(esquemaPropuesta(investigacionActiva));
+    validadores.set(investigacionActiva, validar);
+  }
+  return validar;
+}
 
 /** Descripción en palabras de cada capacidad; sin marcadores literales que el modelo pueda copiar. */
 const DESCRIPCION: Record<string, string> = {
@@ -38,7 +78,29 @@ const DESCRIPCION: Record<string, string> = {
     'consultar las tareas de la persona en Jira. Datos opcionales: status (OPEN para las abiertas, ALL para todas) y project (la clave del proyecto)',
 };
 
-export function construirPrompt(catalogo: Catalogo, ahora: Date, pedido?: PedidoEnCurso): string {
+function instruccionesInvestigacion(activa: boolean): string {
+  if (!activa) return '';
+  return `
+- INVESTIGACION: la pregunta tiene varias partes, pide comparar o pide todo lo necesario para algo. Incluye "subpreguntas" con 2 a 4 preguntas, cada una completa y entendible por sí sola. Si el mensaje también pide una acción, investiga solo la parte de conocimiento; la acción se atenderá en el turno siguiente.
+- ACLARAR: falta un dato que cambia la respuesta de conocimiento, por ejemplo si un viaje es nacional o internacional. Incluye una pregunta concreta en "aclaracion".
+
+Reglas opcionales:
+7. Usa INVESTIGACION solo para preguntas compuestas. No incluyas capabilityId ni params junto con INVESTIGACION.
+8. Usa ACLARAR antes de responder cuando falta un dato esencial. Si el contexto indica una solicitud original pendiente y el mensaje nuevo la aclara, no vuelvas a usar ACLARAR: devuelve PREGUNTA o INVESTIGACION con una consulta completa que combine ambas cosas.
+
+Ejemplos opcionales:
+Mensaje: "Voy a visitar un cliente tres días: ¿con cuánta anticipación pido el viaje, cuánto me dan de viáticos y cómo legalizo los gastos?"
+{"tipo":"INVESTIGACION","subpreguntas":["¿Con cuánta anticipación se solicita un viaje nacional para visitar un cliente?","¿Cuál es el monto diario de viáticos para un viaje nacional?","¿Cómo se legalizan los gastos de un viaje nacional?"]}
+Mensaje: "¿Con cuánta anticipación pido un viaje?"
+{"tipo":"ACLARAR","aclaracion":"¿El viaje es nacional o internacional?"}`;
+}
+
+export function construirPrompt(
+  catalogo: Catalogo,
+  ahora: Date,
+  pedido?: PedidoEnCurso,
+  investigacionActiva = false,
+): string {
   const hoy = hoyBogota(ahora);
   const manana = sumarDias(hoy, 1);
   const capacidades = [...catalogo.keys()]
@@ -60,6 +122,7 @@ Tipos:
 - PREGUNTA: la persona hace una pregunta que se responde con documentos de la empresa. En "consulta" escribe la pregunta reescrita para que se entienda sola, usando la conversación reciente (por ejemplo, si preguntó por viajes nacionales y ahora dice "¿y si es internacional?", la consulta debe nombrar los viajes internacionales).
 - BUSCAR_DOCUMENTO: la persona pide encontrar un archivo o documento. En "consulta" escribe solo el tema del documento.
 - ACCION: la persona pide hacer algo (reservar, cancelar, listar, consultar tareas). Incluye "capabilityId" y "params".
+${instruccionesInvestigacion(investigacionActiva)}
 
 Reglas:
 1. Ignora las fórmulas de cortesía ("hola", "por favor", "ayúdame a") y clasifica por el pedido. "Hola, ayúdame a reservar un puesto" es ACCION, no SALUDO.
@@ -90,13 +153,20 @@ function recortar(texto: string, max = 400): string {
   return texto.length > max ? `${texto.slice(0, max)}…` : texto;
 }
 
-export function construirMensaje(mensaje: string, turnos: Turno[]): string {
+export function construirMensaje(mensaje: string, turnos: Turno[], investigacionActiva = false): string {
   const historia = turnos.length
     ? 'Conversación reciente:\n' +
       turnos.map((t) => `Persona: ${recortar(t.pregunta)}\nEVA: ${recortar(t.respuesta)}`).join('\n') +
       '\n\n'
     : '';
-  return `${historia}Mensaje nuevo de la persona: ${mensaje}`;
+  const ultimo = turnos.length > 0 ? turnos[turnos.length - 1] : undefined;
+  const aclaracionPendiente =
+    investigacionActiva && ultimo?.preguntaOriginal
+      ? `Solicitud original pendiente: ${recortar(ultimo.preguntaOriginal)}\n` +
+        `EVA pidió aclarar: ${recortar(ultimo.respuesta)}\n` +
+        `Respuesta actual de la persona: ${mensaje}\nCombina la solicitud original y esta respuesta en una sola consulta completa.\n\n`
+      : '';
+  return `${historia}${aclaracionPendiente}Mensaje nuevo de la persona: ${mensaje}`;
 }
 
 /** Extrae el primer objeto JSON del texto del modelo (tolera bloques de código). */
@@ -111,12 +181,10 @@ export function extraerJson(texto: string): unknown {
   }
 }
 
-/** Valida la salida del modelo; devuelve null si no cumple el esquema o las reglas del código. */
-export function validarSalida(crudo: unknown): Propuesta | null {
-  if (!validarPropuesta(crudo)) return null;
-  const propuesta = crudo as Propuesta;
-  if (propuesta.tipo === 'ACCION' && !propuesta.capabilityId) return null;
-  return propuesta;
+/** Valida la salida del modelo; devuelve null si no cumple el esquema del interruptor activo. */
+export function validarSalida(crudo: unknown, investigacionActiva = false): Propuesta | null {
+  if (!validador(investigacionActiva)(crudo)) return null;
+  return crudo as Propuesta;
 }
 
 export function propuestaDePregunta(mensaje: string): Propuesta {
@@ -128,11 +196,11 @@ export async function clasificar(ctx: Contexto, catalogo: Catalogo, mensaje: str
   try {
     const r = await ctx.deps.bedrock.converse({
       modelId: ctx.cfg.modelId,
-      system: [{ text: construirPrompt(catalogo, ctx.deps.ahora(), pedido) }],
-      messages: [{ role: 'user', content: [{ text: construirMensaje(mensaje, turnos) }] }],
-      inferenceConfig: { temperature: 0, maxTokens: 400 },
+      system: [{ text: construirPrompt(catalogo, ctx.deps.ahora(), pedido, ctx.cfg.investigacionActiva) }],
+      messages: [{ role: 'user', content: [{ text: construirMensaje(mensaje, turnos, ctx.cfg.investigacionActiva) }] }],
+      inferenceConfig: { temperature: 0, maxTokens: 600 },
     });
-    const propuesta = validarSalida(extraerJson(textoDeConverse(r)));
+    const propuesta = validarSalida(extraerJson(textoDeConverse(r)), ctx.cfg.investigacionActiva);
     if (!propuesta) return propuestaDePregunta(mensaje);
     if ((propuesta.tipo === 'PREGUNTA' || propuesta.tipo === 'BUSCAR_DOCUMENTO') && !propuesta.consulta?.trim()) {
       return { ...propuesta, consulta: mensaje };

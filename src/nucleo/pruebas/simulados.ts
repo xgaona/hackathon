@@ -4,6 +4,7 @@ import type { ConverseCommandInput } from '@aws-sdk/client-bedrock-runtime';
 import type { InvokeRequest, InvokeResult } from '../../comun/contrato';
 import type { ClienteAgente, ClienteBedrock, ClienteDdb, ClienteSfn, Dependencias } from '../dependencias';
 import { MARCA_CLASIFICADOR } from '../intencion';
+import { MARCA_REFORMULACION } from '../investigacion';
 import { MARCA_RESPUESTA } from '../respuesta';
 
 /** Reloj que avanza 1 ms por lectura: los turnos quedan ordenados y la fecha sigue siendo martes 24 de noviembre de 2026. */
@@ -65,6 +66,7 @@ export function crearDdbMemoria(): DdbMemoria {
 export interface BedrockSimulado extends ClienteBedrock {
   colaClasificador: string[];
   colaRespuestas: string[];
+  colaReformulaciones: string[];
   llamadasConverse: ConverseCommandInput[];
   llamadasGuardrail: { fuente: string; texto: string }[];
   intervenirEntrada: (texto: string) => boolean;
@@ -77,6 +79,7 @@ export function crearBedrockSimulado(): BedrockSimulado {
   const sim: BedrockSimulado = {
     colaClasificador: [],
     colaRespuestas: [],
+    colaReformulaciones: [],
     llamadasConverse: [],
     llamadasGuardrail: [],
     intervenirEntrada: (t) => /ignora tus instrucciones/i.test(t),
@@ -88,7 +91,11 @@ export function crearBedrockSimulado(): BedrockSimulado {
     async converse(entrada) {
       sim.llamadasConverse.push(entrada);
       const sistema = entrada.system?.[0]?.text ?? '';
-      const cola = sistema.startsWith(MARCA_CLASIFICADOR) ? sim.colaClasificador : sim.colaRespuestas;
+      const cola = sistema.startsWith(MARCA_CLASIFICADOR)
+        ? sim.colaClasificador
+        : sistema.startsWith(MARCA_REFORMULACION)
+          ? sim.colaReformulaciones
+          : sim.colaRespuestas;
       const texto = cola.shift();
       if (texto === undefined) throw new Error('Sin respuesta programada en el simulado');
       return { output: { message: { role: 'assistant', content: [{ text: texto }] } } } as never;
