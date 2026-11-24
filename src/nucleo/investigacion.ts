@@ -10,6 +10,7 @@ export const MARCA_REFORMULACION = 'Reformula una subpregunta de búsqueda corpo
 export const MAX_RONDAS = 2;
 export const MAX_RETRIEVE = 6;
 export const LIMITE_INVESTIGACION_MS = 20_000;
+const MARGEN_SINTESIS_MS = 2_000;
 
 interface BloqueInvestigacion {
   subpregunta: string;
@@ -23,6 +24,7 @@ export interface ResultadoBusquedaInvestigacion {
   pasajes: Pasaje[];
   pasos: PasoInvestigacion[];
   retrieveRealizados: number;
+  rondasRealizadas: number;
   agotadoTiempo: boolean;
 }
 
@@ -34,13 +36,15 @@ const validarReformulacion = ajv.compile({
   properties: { reformulada: { type: 'string', minLength: 1, maxLength: 500, pattern: '\\S' } },
 });
 
-function transcurrido(ctx: Contexto, inicioMs: number): number {
-  return ctx.deps.ahora().getTime() - inicioMs;
+interface ResultadoFase {
+  completa: boolean;
+  lanzadas: number;
 }
 
-/** Espera una fase hasta el presupuesto; al vencer, las promesas pendientes ya no modifican el resultado. */
-async function esperarFase(tareas: Promise<void>[], restanteMs: number, cerrar: () => void): Promise<boolean> {
+/** Espera una fase hasta el plazo; al vencer, las promesas pendientes ya no modifican el resultado. */
+async function esperarFase(tareas: Promise<void>[], plazoMs: number, cerrar: () => void): Promise<boolean> {
   if (tareas.length === 0) return true;
+  const restanteMs = plazoMs - Date.now();
   if (restanteMs <= 0) {
     cerrar();
     return false;
@@ -56,13 +60,27 @@ async function esperarFase(tareas: Promise<void>[], restanteMs: number, cerrar: 
   return termino;
 }
 
+async function esperarResultado<T>(tarea: Promise<T>, plazoMs: number): Promise<T | undefined> {
+  const restanteMs = plazoMs - Date.now();
+  if (restanteMs <= 0) return undefined;
+  let temporizador: ReturnType<typeof setTimeout> | undefined;
+  const completa = tarea.then((valor) => ({ completa: true as const, valor }));
+  const vence = new Promise<{ completa: false }>((resolve) => {
+    temporizador = setTimeout(() => resolve({ completa: false }), restanteMs);
+  });
+  const resultado = await Promise.race([completa, vence]);
+  if (temporizador) clearTimeout(temporizador);
+  return resultado.completa ? resultado.valor : undefined;
+}
+
 async function buscarRonda(
   ctx: Contexto,
   bloques: BloqueInvestigacion[],
   indices: number[],
-  inicioMs: number,
+  plazoBusquedaMs: number,
   contador: { valor: number },
-): Promise<boolean> {
+): Promise<ResultadoFase> {
+  if (Date.now() >= plazoBusquedaMs) return { completa: false, lanzadas: 0 };
   const cupo = Math.max(0, MAX_RETRIEVE - contador.valor);
   const seleccion = indices.slice(0, cupo);
   contador.valor += seleccion.length;
@@ -76,17 +94,19 @@ async function buscarRonda(
       if (aceptar) bloques[indice].pasajes = [];
     }
   });
-  return esperarFase(tareas, LIMITE_INVESTIGACION_MS - transcurrido(ctx, inicioMs), () => {
+  const completa = await esperarFase(tareas, plazoBusquedaMs, () => {
     aceptar = false;
   });
+  return { completa, lanzadas: seleccion.length };
 }
 
 async function reformular(
   ctx: Contexto,
   bloques: BloqueInvestigacion[],
   indices: number[],
-  inicioMs: number,
+  plazoBusquedaMs: number,
 ): Promise<number[]> {
+  if (Date.now() >= plazoBusquedaMs) return [];
   let aceptar = true;
   const validas: number[] = [];
   const tareas = indices.map(async (indice) => {
@@ -112,15 +132,19 @@ async function reformular(
       // Una reformulación inválida deja la parte como no encontrada.
     }
   });
-  await esperarFase(tareas, LIMITE_INVESTIGACION_MS - transcurrido(ctx, inicioMs), () => {
+  await esperarFase(tareas, plazoBusquedaMs, () => {
     aceptar = false;
   });
   return validas.sort((a, b) => a - b);
 }
 
 /** Dos rondas como máximo; cada subpregunta se reformula como máximo una vez. */
-export async function buscarInvestigacion(ctx: Contexto, subpreguntas: string[]): Promise<ResultadoBusquedaInvestigacion> {
-  const inicioMs = ctx.deps.ahora().getTime();
+export async function buscarInvestigacion(
+  ctx: Contexto,
+  subpreguntas: string[],
+  inicioMs = Date.now(),
+): Promise<ResultadoBusquedaInvestigacion> {
+  const plazoBusquedaMs = inicioMs + LIMITE_INVESTIGACION_MS - MARGEN_SINTESIS_MS;
   const bloques: BloqueInvestigacion[] = subpreguntas.map((subpregunta) => ({
     subpregunta,
     consulta: subpregunta,
@@ -128,16 +152,22 @@ export async function buscarInvestigacion(ctx: Contexto, subpreguntas: string[])
     reformulada: false,
   }));
   const contador = { valor: 0 };
+  let rondasRealizadas = 0;
   const primera = bloques.map((_, i) => i);
-  const completaPrimera = await buscarRonda(ctx, bloques, primera, inicioMs, contador);
+  const resultadoPrimera = await buscarRonda(ctx, bloques, primera, plazoBusquedaMs, contador);
+  if (resultadoPrimera.lanzadas > 0) rondasRealizadas++;
 
-  if (completaPrimera && transcurrido(ctx, inicioMs) < LIMITE_INVESTIGACION_MS) {
-    const sinFuente = bloques.map((b, i) => ({ b, i })).filter(({ b }) => b.pasajes.length === 0).map(({ i }) => i);
+  if (resultadoPrimera.completa && rondasRealizadas < MAX_RONDAS && Date.now() < plazoBusquedaMs) {
+    const sinFuente = bloques
+      .map((b, i) => ({ b, i }))
+      .filter(({ b }) => b.pasajes.length === 0 && !b.reformulada)
+      .map(({ i }) => i);
     // Solo se reformulan las partes para las que queda cupo de Retrieve; el máximo global manda.
     const conCupo = sinFuente.slice(0, Math.max(0, MAX_RETRIEVE - contador.valor));
-    const reformuladas = await reformular(ctx, bloques, conCupo, inicioMs);
-    if (transcurrido(ctx, inicioMs) < LIMITE_INVESTIGACION_MS) {
-      await buscarRonda(ctx, bloques, reformuladas, inicioMs, contador);
+    const reformuladas = await reformular(ctx, bloques, conCupo, plazoBusquedaMs);
+    if (reformuladas.length > 0 && Date.now() < plazoBusquedaMs) {
+      const resultadoSegunda = await buscarRonda(ctx, bloques, reformuladas, plazoBusquedaMs, contador);
+      if (resultadoSegunda.lanzadas > 0) rondasRealizadas++;
     }
   }
 
@@ -153,7 +183,8 @@ export async function buscarInvestigacion(ctx: Contexto, subpreguntas: string[])
     pasajes,
     pasos,
     retrieveRealizados: contador.valor,
-    agotadoTiempo: transcurrido(ctx, inicioMs) >= LIMITE_INVESTIGACION_MS,
+    rondasRealizadas,
+    agotadoTiempo: Date.now() >= plazoBusquedaMs,
   };
 }
 
@@ -163,17 +194,36 @@ function consultaParaSintesis(bloques: BloqueInvestigacion[]): string {
     .join('\n');
 }
 
+function completarPartesSinFuente(texto: string, bloques: BloqueInvestigacion[]): string {
+  const sinFuente = bloques.filter((b) => b.pasajes.length === 0);
+  const yaIncluidas = texto.match(/(?:^|[.!?]\s+|\n)No encontré\b/g)?.length ?? 0;
+  const faltantes = sinFuente.slice(yaIncluidas).map((b) => `No encontré información para responder "${b.subpregunta}".`);
+  return faltantes.length > 0 ? `${texto.trim()} ${faltantes.join(' ')}` : texto;
+}
+
 /** Busca y sintetiza una pregunta compuesta sin exponer pasajes en researchSteps ni logs. */
 export async function investigar(ctx: Contexto, subpreguntas: string[]): Promise<Salida> {
-  const resultado = await buscarInvestigacion(ctx, subpreguntas);
+  const inicioMs = Date.now();
+  const resultado = await buscarInvestigacion(ctx, subpreguntas, inicioMs);
   if (resultado.pasajes.length === 0) {
     return { status: 'NO_ANSWER', reply: MENSAJE_SIN_FUENTE, researchSteps: resultado.pasos };
   }
   const reglas =
     'Responde cada subpregunta en el orden indicado. Por cada subpregunta marcada SIN FUENTE, incluye una frase que empiece exactamente con "No encontré" y nombra lo que no encontraste. ' +
     'No atribuyas a una parte los pasajes de otra parte.';
-  const respuesta = await responderConocimiento(ctx, consultaParaSintesis(resultado.bloques), resultado.pasajes, reglas);
-  if (!respuesta.ok) {
+  const plazoFinalMs = inicioMs + LIMITE_INVESTIGACION_MS - 1;
+  if (Date.now() >= plazoFinalMs) {
+    return { status: 'NO_ANSWER', reply: MENSAJE_SIN_FUENTE, researchSteps: resultado.pasos };
+  }
+  const tarea = responderConocimiento(
+    ctx,
+    consultaParaSintesis(resultado.bloques),
+    resultado.pasajes,
+    reglas,
+    (texto) => completarPartesSinFuente(texto, resultado.bloques),
+  );
+  const respuesta = await esperarResultado(tarea, plazoFinalMs);
+  if (!respuesta?.ok) {
     return { status: 'NO_ANSWER', reply: MENSAJE_SIN_FUENTE, researchSteps: resultado.pasos };
   }
   return {

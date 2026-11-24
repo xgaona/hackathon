@@ -124,7 +124,7 @@ export interface ResultadoKb {
 
 export interface AgenteSimulado extends ClienteAgente {
   llamadas: RetrieveCommandInput[];
-  responder: (consulta: string) => ResultadoKb[];
+  responder: (consulta: string) => ResultadoKb[] | Promise<ResultadoKb[]>;
 }
 
 export function crearAgenteSimulado(): AgenteSimulado {
@@ -133,7 +133,7 @@ export function crearAgenteSimulado(): AgenteSimulado {
     responder: () => [],
     async retrieve(entrada) {
       sim.llamadas.push(entrada);
-      const resultados = sim.responder(entrada.retrievalQuery?.text ?? '');
+      const resultados = await sim.responder(entrada.retrievalQuery?.text ?? '');
       return {
         retrievalResults: resultados.map((r) => ({
           content: { text: r.texto },

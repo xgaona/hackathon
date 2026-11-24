@@ -59,18 +59,19 @@ interface Entorno {
 
 let actual: Entorno | undefined;
 
-function crearEntorno(investigacionActiva = false): Entorno {
+function crearEntorno(investigacionActiva: boolean | undefined = false): Entorno {
   const sim = crearSimulados();
   sim.agente.responder = () => [VIAJES, RUIDO];
-  const cfg = leerConfig({
+  const variables: Record<string, string> = {
     TABLA_ESTADO: 'eva-dev-estado',
     KB_ID: 'KB123',
     FLUJO_TRANSACCIONAL_ARN: 'arn:aws:states:us-east-1:111111111111:stateMachine:eva-dev-transaccional',
     GUARDRAIL_ID: 'gr-1',
     GUARDRAIL_VERSION: '1',
     TITULOS_SECCION: TITULOS,
-    INVESTIGACION_ACTIVA: investigacionActiva ? 'true' : 'false',
-  });
+  };
+  if (investigacionActiva !== undefined) variables.INVESTIGACION_ACTIVA = investigacionActiva ? 'true' : 'false';
+  const cfg = leerConfig(variables);
   const manejador = crearManejador(sim.deps, cfg);
   const claimsPorDefecto = { sub: SUB, 'cognito:groups': 'eva-users' };
 
@@ -831,6 +832,8 @@ describe('módulo opcional de investigación en la API', () => {
       },
     ]);
     expect(JSON.stringify(cuerpo.researchSteps)).not.toContain('5 días hábiles');
+    const turno = [...e.sim.ddb.items.values()].find((item) => String(item.sk).startsWith('TURN#'));
+    expect(turno?.knowledgeIds).toEqual(['DOC-SYN-0001', 'DOC-SYN-0002']);
   });
 
   it('subpregunta sin pasajes se reformula una vez y la respuesta dice "No encontré"', async () => {
@@ -875,6 +878,39 @@ describe('módulo opcional de investigación en la API', () => {
     expect(promptsDe(e.sim, MARCA_CLASIFICADOR)[0]).not.toContain('- ACLARAR:');
   });
 
+  it('con INVESTIGACION_ACTIVA=false también rechaza ACLARAR y usa el flujo normal', async () => {
+    const e = crearEntorno(false);
+    e.sim.agente.responder = () => [VIAJES];
+    e.sim.bedrock.colaClasificador.push(
+      clas({ tipo: 'ACLARAR', aclaracion: '¿El viaje es nacional o internacional?' }),
+    );
+    e.sim.bedrock.colaRespuestas.push('Los viajes se solicitan con anticipación [1].');
+
+    const { cuerpo } = await e.enviar('¿Con cuánta anticipación pido el viaje?');
+
+    expect(cuerpo.status).toBe('ANSWERED');
+    expect(e.sim.agente.llamadas).toHaveLength(1);
+    expect(e.sim.agente.llamadas[0].retrievalQuery?.text).toBe('¿Con cuánta anticipación pido el viaje?');
+    expect([...e.sim.ddb.items.values()].some((item) => item.preguntaOriginal !== undefined)).toBe(false);
+  });
+
+  it('con el flag ausente rechaza ambos tipos opcionales y no los menciona en el prompt', async () => {
+    const e = crearEntorno(undefined);
+    e.sim.agente.responder = () => [VIAJES];
+    e.sim.bedrock.colaClasificador.push(
+      clas({ tipo: 'INVESTIGACION', subpreguntas: ['¿Cuál es el plazo?', '¿Quién aprueba?'] }),
+    );
+    e.sim.bedrock.colaRespuestas.push('Los viajes se solicitan con anticipación [1].');
+
+    const { cuerpo } = await e.enviar('¿Cuál es el plazo y quién aprueba?');
+
+    expect(cuerpo.status).toBe('ANSWERED');
+    expect(e.sim.agente.llamadas).toHaveLength(1);
+    const prompt = promptsDe(e.sim, MARCA_CLASIFICADOR)[0];
+    expect(prompt).not.toContain('- INVESTIGACION:');
+    expect(prompt).not.toContain('- ACLARAR:');
+  });
+
   it('pregunta ambigua → NEEDS_CLARIFICATION y el turno siguiente usa la pregunta combinada', async () => {
     const e = crearEntorno(true);
     e.sim.bedrock.colaClasificador.push(
@@ -897,5 +933,114 @@ describe('módulo opcional de investigación en la API', () => {
     const mensajeClasificador = mensajesDe(e.sim, MARCA_CLASIFICADOR)[1];
     expect(mensajeClasificador).toContain('Solicitud original pendiente: ¿Con cuánta anticipación pido un viaje?');
     expect(mensajeClasificador).toContain('Respuesta actual de la persona: Internacional');
+    const turnoAclaracion = [...e.sim.ddb.items.values()].find(
+      (item) => item.preguntaOriginal === '¿Con cuánta anticipación pido un viaje?',
+    );
+    expect(turnoAclaracion).toBeDefined();
+  });
+
+  it('deduplica citas de la misma sección recuperada para dos subpreguntas', async () => {
+    const e = crearEntorno(true);
+    e.sim.agente.responder = () => [VIAJES];
+    e.sim.bedrock.colaClasificador.push(
+      clas({ tipo: 'INVESTIGACION', subpreguntas: ['¿Cuál es el plazo?', '¿Cuántos días de anticipación?'] }),
+    );
+    e.sim.bedrock.colaRespuestas.push('El plazo mínimo es de 5 días hábiles [1][3].');
+
+    const { cuerpo } = await e.enviar('¿Cuál es el plazo y cuántos días son?');
+
+    expect(cuerpo.status).toBe('ANSWERED');
+    expect(cuerpo.citations).toHaveLength(1);
+    expect(cuerpo.citations?.[0]).toMatchObject({
+      documentId: 'DOC-SYN-0001',
+      seccion: 'Anticipación de la solicitud',
+    });
+  });
+
+  it('agrega una frase «No encontré» por cada parte sin fuente antes del guardrail de salida', async () => {
+    const e = crearEntorno(true);
+    e.sim.agente.responder = (consulta) => (consulta === 'Con fuente' ? [GASTOS] : []);
+    e.sim.bedrock.colaClasificador.push(
+      clas({ tipo: 'INVESTIGACION', subpreguntas: ['Con fuente', 'Parte sin fuente A', 'Parte sin fuente B'] }),
+    );
+    e.sim.bedrock.colaReformulaciones.push(
+      clas({ reformulada: 'Parte A reformulada' }),
+      clas({ reformulada: 'Parte B reformulada' }),
+    );
+    e.sim.bedrock.colaRespuestas.push('Los gastos se legalizan dentro de los 5 días hábiles siguientes [1].');
+
+    const { cuerpo } = await e.enviar('Consulta compuesta con dos partes desconocidas');
+
+    expect(cuerpo.status).toBe('ANSWERED');
+    expect(cuerpo.reply.match(/No encontré/g)).toHaveLength(2);
+    expect(cuerpo.reply).toContain('Parte sin fuente A');
+    expect(cuerpo.reply).toContain('Parte sin fuente B');
+    const salidaRevisada = e.sim.bedrock.llamadasGuardrail.find((llamada) => llamada.fuente === 'OUTPUT')?.texto;
+    expect(salidaRevisada?.match(/No encontré/g)).toHaveLength(2);
+  });
+
+  it('cero fuentes devuelve NO_ANSWER sin síntesis y los logs no contienen pasajes', async () => {
+    const e = crearEntorno(true);
+    const logs: string[] = [];
+    jest.spyOn(console, 'log').mockImplementation((linea: unknown) => void logs.push(String(linea)));
+    const textoSecreto = 'PAS-SYN-CONTENIDO-QUE-NO-DEBE-APARECER';
+    e.sim.agente.responder = () => [
+      {
+        ...GASTOS,
+        texto: textoSecreto,
+        score: 0.1,
+      },
+    ];
+    e.sim.bedrock.colaClasificador.push(
+      clas({ tipo: 'INVESTIGACION', subpreguntas: ['Pregunta sin fuente 1', 'Pregunta sin fuente 2'] }),
+    );
+    e.sim.bedrock.colaReformulaciones.push(
+      clas({ reformulada: 'Pregunta reformulada 1' }),
+      clas({ reformulada: 'Pregunta reformulada 2' }),
+    );
+
+    const { cuerpo } = await e.enviar('Pregunta sin información disponible');
+
+    expect(cuerpo.status).toBe('NO_ANSWER');
+    expect(e.sim.bedrock.contar('respuesta')).toBe(0);
+    expect(JSON.stringify(cuerpo.researchSteps)).not.toContain(textoSecreto);
+    expect(logs.join('\n')).not.toContain(textoSecreto);
+  });
+
+  it('el guardrail de salida también protege la síntesis de investigación', async () => {
+    const e = crearEntorno(true);
+    e.sim.agente.responder = () => [VIAJES];
+    e.sim.bedrock.intervenirSalida = () => true;
+    e.sim.bedrock.colaClasificador.push(
+      clas({ tipo: 'INVESTIGACION', subpreguntas: ['¿Cuál es el plazo?', '¿Quién aprueba?'] }),
+    );
+    e.sim.bedrock.colaRespuestas.push('Texto que no se debe mostrar [1].');
+
+    const { cuerpo } = await e.enviar('¿Cuál es el plazo y quién aprueba?');
+
+    expect(cuerpo.status).toBe('NO_ANSWER');
+    expect(cuerpo.reply).toBe(MENSAJE_SIN_FUENTE);
+    expect(e.sim.bedrock.llamadasGuardrail.map((llamada) => llamada.fuente)).toEqual(['INPUT', 'OUTPUT']);
+  });
+
+  it('una pregunta compuesta con acción no propone ni ejecuta la acción en ese turno', async () => {
+    const e = crearEntorno(true);
+    e.sim.agente.responder = () => [VIAJES];
+    e.sim.bedrock.colaClasificador.push(
+      clas({ tipo: 'INVESTIGACION', subpreguntas: ['¿Cuál es el plazo?', '¿Quién aprueba?'] }),
+    );
+    e.sim.bedrock.colaRespuestas.push('El viaje se solicita con 5 días hábiles de anticipación [1].');
+
+    const investigacion = await e.enviar('¿Cuál es el plazo del viaje y resérvame un puesto mañana?');
+
+    expect(investigacion.cuerpo.status).toBe('ANSWERED');
+    expect(investigacion.cuerpo.pendingAction).toBeUndefined();
+    expect(e.sim.sfn.invocaciones).toHaveLength(0);
+    expect([...e.sim.ddb.items.keys()].some((clave) => clave.endsWith('|PENDING'))).toBe(false);
+
+    e.sim.bedrock.colaClasificador.push(reserva({ date: '2026-11-25' }));
+    const accion = await e.enviar('Ahora reserva el puesto', { conversationId: investigacion.cuerpo.conversationId });
+    expect(accion.cuerpo.status).toBe('AWAITING_CONFIRMATION');
+    expect(accion.cuerpo.pendingAction).toBeDefined();
   });
 });
