@@ -36,14 +36,14 @@ Despliegue (lo hace la operadora, Kiro no ejecuta comandos contra AWS): después
   - Pruebas: Lambdas y roles, ramas y `DENIED`, registro, quién puede invocar los conectores (solo el rol de la máquina), lista exacta de acciones del núcleo.
   - _Requisitos: 6, 7, 13_
 
-- [ ] 5. Lógica del portal (`src/portal/app.js`)
+- [x] 5. Lógica del portal (`src/portal/app.js`)
   - Ingreso con `fetch` a `InitiateAuth`, token solo en memoria, vuelta al ingreso con `401`.
   - Envío a `/v1/conversations`, burbujas de persona y de EVA con `#plantilla-mensaje`, lista de fuentes (título, sección, fecha), bloque "Cómo lo investigué", resumen con Confirmar y Cancelar y llamada a `/confirm` con los botones deshabilitados.
   - Sugerencias de la demo en `#sugerencias`. Solo `textContent` y el atributo `hidden`.
   - Pruebas de la lógica pura con Jest si `jsdom` ya está disponible; si no, quedan cubiertas por la prueba de humo y se avisa.
   - _Requisitos: 10, 11_
 
-- [ ] 6. Prueba de humo
+- [x] 6. Prueba de humo
   - `infra/scripts/prueba-humo.mjs`: lee las salidas y el secreto con AWS CLI sin imprimirlo, inicia sesión, ejecuta las preguntas 1 a 7 (con "piso 3" → "El jueves" → confirmar) y muestra `status`, títulos citados y resumen de la acción pendiente.
   - Con `--investigacion`: agrega las preguntas 8 y 9 y muestra los `researchSteps`.
   - Prueba de las funciones puras del script (armado de salida, lectura de argumentos) con Jest, sin llamadas reales a AWS.
