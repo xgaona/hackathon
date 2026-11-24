@@ -3,6 +3,9 @@
 import * as path from 'path';
 import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
+import * as bedrock from 'aws-cdk-lib/aws-bedrock';
+import * as iam from 'aws-cdk-lib/aws-iam';
+import * as s3vectors from 'aws-cdk-lib/aws-s3vectors';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
@@ -24,6 +27,8 @@ export interface EvaStackProps extends StackProps {
 const RAIZ = path.join(__dirname, '..', '..');
 const CARPETA_CORPUS_GENERAL = path.join(RAIZ, 'data', 'conocimiento', 'documentos', 'general');
 const MODEL_ID = 'amazon.nova-pro-v1:0';
+const MODELO_EMBEDDINGS = 'amazon.titan-embed-text-v2:0';
+const PREFIJO_CORPUS = 'general/';
 
 export class EvaStack extends Stack {
   readonly ambiente: string;
@@ -43,6 +48,7 @@ export class EvaStack extends Stack {
     this.nucleo();
     this.crearApi();
     this.portal();
+    this.baseConocimiento();
   }
 
   /** Configuración común de las Lambdas: Node 22, arm64 y SDK empaquetado (lección 9). */
@@ -209,5 +215,112 @@ export class EvaStack extends Stack {
     new CfnOutput(this, 'PortalUrl', { value: `https://${distribucion.distributionDomainName}` });
     new CfnOutput(this, 'UserPoolId', { value: this.userPool.userPoolId });
     new CfnOutput(this, 'UserPoolClientId', { value: this.cliente.userPoolClientId });
+  }
+
+  /**
+   * Base de conocimiento (tarea 2): solo data/conocimiento/documentos/general llega al bucket, en general/
+   * (invariante 6). Vectores en S3 Vectors con los detalles de tecnologia.md.
+   */
+  private baseConocimiento(): void {
+    const origen = new s3.Bucket(this, 'OrigenKb', {
+      bucketName: `${nombre(this.ambiente, 'kb')}-${this.account}`,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      removalPolicy: RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+    });
+
+    new s3deploy.BucketDeployment(this, 'DespliegueCorpus', {
+      destinationBucket: origen,
+      destinationKeyPrefix: PREFIJO_CORPUS,
+      sources: [s3deploy.Source.asset(CARPETA_CORPUS_GENERAL)],
+    });
+
+    const vectores = new s3vectors.CfnVectorBucket(this, 'Vectores', {
+      vectorBucketName: nombre(this.ambiente, 'vectores'),
+    });
+    vectores.applyRemovalPolicy(RemovalPolicy.DESTROY);
+
+    const indice = new s3vectors.CfnIndex(this, 'IndiceVectores', {
+      vectorBucketArn: vectores.attrVectorBucketArn,
+      indexName: 'eva-kb',
+      dataType: 'float32',
+      dimension: 1024,
+      distanceMetric: 'cosine',
+      // Sin esto la ingesta falla por el límite de metadatos filtrables (tecnologia.md).
+      metadataConfiguration: { nonFilterableMetadataKeys: ['AMAZON_BEDROCK_TEXT', 'AMAZON_BEDROCK_METADATA'] },
+    });
+    indice.applyRemovalPolicy(RemovalPolicy.DESTROY);
+
+    const modeloEmbeddings = `arn:${this.partition}:bedrock:${this.region}::foundation-model/${MODELO_EMBEDDINGS}`;
+    const rolKb = new iam.Role(this, 'RolKb', {
+      roleName: nombre(this.ambiente, 'kb-rol'),
+      assumedBy: new iam.ServicePrincipal('bedrock.amazonaws.com', {
+        conditions: {
+          StringEquals: { 'aws:SourceAccount': this.account },
+          ArnLike: { 'aws:SourceArn': `arn:${this.partition}:bedrock:${this.region}:${this.account}:knowledge-base/*` },
+        },
+      }),
+      inlinePolicies: {
+        kb: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({ actions: ['bedrock:InvokeModel'], resources: [modeloEmbeddings] }),
+            new iam.PolicyStatement({
+              actions: ['s3:ListBucket'],
+              resources: [origen.bucketArn],
+              conditions: { StringLike: { 's3:prefix': [`${PREFIJO_CORPUS}*`] } },
+            }),
+            new iam.PolicyStatement({
+              actions: ['s3:GetObject'],
+              resources: [origen.arnForObjects(`${PREFIJO_CORPUS}*`)],
+            }),
+            new iam.PolicyStatement({
+              actions: [
+                's3vectors:PutVectors',
+                's3vectors:GetVectors',
+                's3vectors:DeleteVectors',
+                's3vectors:QueryVectors',
+                's3vectors:GetIndex',
+              ],
+              resources: [indice.attrIndexArn],
+            }),
+          ],
+        }),
+      },
+    });
+
+    const kb = new bedrock.CfnKnowledgeBase(this, 'Kb', {
+      name: nombre(this.ambiente, 'kb'),
+      description: 'Documentos corporativos sintéticos de clasificación GENERAL',
+      roleArn: rolKb.roleArn,
+      knowledgeBaseConfiguration: {
+        type: 'VECTOR',
+        vectorKnowledgeBaseConfiguration: { embeddingModelArn: modeloEmbeddings },
+      },
+      storageConfiguration: {
+        type: 'S3_VECTORS',
+        s3VectorsConfiguration: { vectorBucketArn: vectores.attrVectorBucketArn, indexArn: indice.attrIndexArn },
+      },
+    });
+    kb.node.addDependency(rolKb);
+
+    const fuente = new bedrock.CfnDataSource(this, 'FuenteKb', {
+      knowledgeBaseId: kb.attrKnowledgeBaseId,
+      name: nombre(this.ambiente, 'kb-general'),
+      dataDeletionPolicy: 'RETAIN',
+      dataSourceConfiguration: {
+        type: 'S3',
+        s3Configuration: { bucketArn: origen.bucketArn, inclusionPrefixes: [PREFIJO_CORPUS] },
+      },
+    });
+
+    this.funcionNucleo.addEnvironment('KB_ID', kb.attrKnowledgeBaseId);
+    this.funcionNucleo.addToRolePolicy(
+      new iam.PolicyStatement({ actions: ['bedrock:Retrieve'], resources: [kb.attrKnowledgeBaseArn] }),
+    );
+
+    new CfnOutput(this, 'KbId', { value: kb.attrKnowledgeBaseId });
+    new CfnOutput(this, 'DataSourceId', { value: fuente.attrDataSourceId });
   }
 }
