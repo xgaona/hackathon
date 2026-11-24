@@ -1,5 +1,5 @@
 {
-  "app": "npx ts-node --project tsconfig.json infra/bin/app.ts",
+  "app": "node -r ts-node/register infra/bin/app.ts",
   "context": {
     "env": "dev"
   }
