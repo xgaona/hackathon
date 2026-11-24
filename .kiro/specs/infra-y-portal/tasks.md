@@ -24,7 +24,7 @@ Despliegue (lo hace la operadora, Kiro no ejecuta comandos contra AWS): después
   - Pruebas: bucket, prefijo del `BucketDeployment` y que no incluya `restringido/`, índice (1024, cosine, float32, claves no filtrables), rol de la KB sin comodines, KB, fuente de datos, salidas, `KB_ID` y `Retrieve` en el núcleo.
   - _Requisitos: 4, 13_
 
-- [ ] 3. Guardrail
+- [x] 3. Guardrail
   - Método `guardrail()`: `CfnGuardrail` `eva-dev-guardrail` (STANDARD, perfil `us.guardrail.v1:0`, `PROMPT_ATTACK` alto en la entrada, `MISCONDUCT` bajo en la entrada y medio en la salida, `INSULTS` medio, bloqueo de tarjeta y contraseña, sin grounding) y `CfnGuardrailVersion` con `description`.
   - Variables `GUARDRAIL_ID` y `GUARDRAIL_VERSION` y permiso `bedrock:ApplyGuardrail` (guardrail y perfil) para el núcleo; `bedrock:InvokeModel` sobre Nova Pro.
   - Pruebas: nivel, perfil, filtros y fuerzas, información sensible, ausencia de `contextualGroundingPolicyConfig`, `description` no vacía, variables y permisos del núcleo.

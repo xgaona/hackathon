@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { App } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
-import { EvaStack } from './eva-stack';
+import { DESCRIPCION_VERSION_GUARDRAIL, EvaStack } from './eva-stack';
 
 function sintetizar(contexto: Record<string, unknown> = {}): Template {
   const app = new App({ context: { 'aws:cdk:bundling-stacks': [], ...contexto } });
@@ -106,6 +106,8 @@ describe('Tarea 1: Lambda del nÃºcleo', () => {
     const funciones = plantilla.findResources('AWS::Lambda::Function', { Properties: { FunctionName: 'eva-dev-nucleo' } });
     const entorno = Object.values(funciones)[0].Properties.Environment.Variables as Record<string, unknown>;
     expect(Object.keys(entorno).sort()).toEqual([
+      'GUARDRAIL_ID',
+      'GUARDRAIL_VERSION',
       'INVESTIGACION_ACTIVA',
       'KB_ID',
       'MODEL_ID',
@@ -375,6 +377,80 @@ describe('Tarea 2: base de conocimiento', () => {
         ]),
       },
     });
+  });
+});
+
+describe('Tarea 3: guardrail', () => {
+  const plantilla = sintetizar();
+  const guardrails = Object.values(plantilla.findResources('AWS::Bedrock::Guardrail'));
+  // Propiedades de CloudFormation sin tipar: se navegan como JSON en las aserciones.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const props = guardrails[0]?.Properties as Record<string, any>;
+
+  it('crea un solo guardrail eva-dev-guardrail', () => {
+    expect(guardrails).toHaveLength(1);
+    expect(props.Name).toBe('eva-dev-guardrail');
+  });
+
+  it('usa el nivel STANDARD dentro de contentPolicyConfig', () => {
+    expect(props.ContentPolicyConfig.ContentFiltersTierConfig).toEqual({ TierName: 'STANDARD' });
+    expect(props.ContentFiltersTierConfig).toBeUndefined();
+  });
+
+  it('usa el perfil entre regiones us.guardrail.v1:0 de la cuenta', () => {
+    expect(JSON.stringify(props.CrossRegionConfig.GuardrailProfileArn)).toContain(
+      ':bedrock:us-east-1:111111111111:guardrail-profile/us.guardrail.v1:0',
+    );
+  });
+
+  it('tiene exactamente los filtros y fuerzas de las lecciones 2 a 4', () => {
+    const filtros = (props.ContentPolicyConfig.FiltersConfig as Record<string, string>[])
+      .map((f) => `${f.Type}:${f.InputStrength}/${f.OutputStrength}`)
+      .sort();
+    expect(filtros).toEqual(['INSULTS:MEDIUM/MEDIUM', 'MISCONDUCT:LOW/MEDIUM', 'PROMPT_ATTACK:HIGH/NONE']);
+  });
+
+  it('bloquea números de tarjeta y contraseñas', () => {
+    const pii = (props.SensitiveInformationPolicyConfig.PiiEntitiesConfig as Record<string, string>[])
+      .map((p) => `${p.Type}:${p.Action}`)
+      .sort();
+    expect(pii).toEqual(['CREDIT_DEBIT_CARD_NUMBER:BLOCK', 'PASSWORD:BLOCK']);
+  });
+
+  it('no tiene contextual grounding (lección 3)', () => {
+    expect(props.ContextualGroundingPolicyConfig).toBeUndefined();
+  });
+
+  it('tiene mensajes de bloqueo en español', () => {
+    expect(props.BlockedInputMessaging).toMatch(/No puedo ayudarte/);
+    expect(props.BlockedOutputsMessaging).toMatch(/No encontré/);
+  });
+
+  it('publica una versión con la descripción vigente (lección 5)', () => {
+    plantilla.hasResourceProperties('AWS::Bedrock::GuardrailVersion', {
+      GuardrailIdentifier: { 'Fn::GetAtt': [Match.stringLikeRegexp('^Guardrail'), 'GuardrailId'] },
+      Description: DESCRIPCION_VERSION_GUARDRAIL,
+    });
+    expect(DESCRIPCION_VERSION_GUARDRAIL.trim().length).toBeGreaterThan(0);
+  });
+
+  it('el núcleo recibe GUARDRAIL_ID y GUARDRAIL_VERSION', () => {
+    const funciones = plantilla.findResources('AWS::Lambda::Function', { Properties: { FunctionName: 'eva-dev-nucleo' } });
+    const entorno = Object.values(funciones)[0].Properties.Environment.Variables;
+    expect(entorno.GUARDRAIL_ID).toEqual({ 'Fn::GetAtt': [expect.stringMatching(/^Guardrail/), 'GuardrailId'] });
+    expect(entorno.GUARDRAIL_VERSION).toEqual({
+      'Fn::GetAtt': [expect.stringMatching(/^GuardrailVersion/), 'Version'],
+    });
+  });
+
+  it('el núcleo puede aplicar el guardrail y su perfil, e invocar solo Nova Pro', () => {
+    const texto = JSON.stringify(declaraciones(plantilla).filter((d) => d.acciones.includes('bedrock:ApplyGuardrail')));
+    expect(texto).toContain('GuardrailArn');
+    expect(texto).toContain(':bedrock:*:111111111111:guardrail-profile/us.guardrail.v1:0');
+
+    const invocar = declaraciones(plantilla).filter((d) => d.acciones.includes('bedrock:InvokeModel'));
+    const recursosNucleo = invocar.map((d) => JSON.stringify(d.recursos)).filter((r) => r.includes('nova'));
+    expect(recursosNucleo).toEqual([expect.stringContaining('foundation-model/amazon.nova-pro-v1:0')]);
   });
 });
 

@@ -29,6 +29,9 @@ const CARPETA_CORPUS_GENERAL = path.join(RAIZ, 'data', 'conocimiento', 'document
 const MODEL_ID = 'amazon.nova-pro-v1:0';
 const MODELO_EMBEDDINGS = 'amazon.titan-embed-text-v2:0';
 const PREFIJO_CORPUS = 'general/';
+const PERFIL_GUARDRAIL = 'us.guardrail.v1:0';
+/** Cambiar en cada ajuste del guardrail para publicar una versión nueva (lección 5). */
+export const DESCRIPCION_VERSION_GUARDRAIL = 'v1: standard, misconduct LOW en entrada, sin grounding';
 
 export class EvaStack extends Stack {
   readonly ambiente: string;
@@ -49,6 +52,7 @@ export class EvaStack extends Stack {
     this.crearApi();
     this.portal();
     this.baseConocimiento();
+    this.guardrail();
   }
 
   /** Configuración común de las Lambdas: Node 22, arm64 y SDK empaquetado (lección 9). */
@@ -322,5 +326,64 @@ export class EvaStack extends Stack {
 
     new CfnOutput(this, 'KbId', { value: kb.attrKnowledgeBaseId });
     new CfnOutput(this, 'DataSourceId', { value: fuente.attrDataSourceId });
+  }
+
+  /**
+   * Guardrail (tarea 3), según las lecciones 2 a 5 de tecnologia.md: nivel STANDARD con el perfil
+   * us.guardrail.v1:0, MISCONDUCT bajo en la entrada y SIN contextual grounding.
+   */
+  private guardrail(): void {
+    const perfilGuardrail = `arn:${this.partition}:bedrock:${this.region}:${this.account}:guardrail-profile/${PERFIL_GUARDRAIL}`;
+
+    const guardrail = new bedrock.CfnGuardrail(this, 'Guardrail', {
+      name: nombre(this.ambiente, 'guardrail'),
+      description: 'Guardrail de EVA: ataques de prompt, conducta indebida, insultos y datos sensibles',
+      blockedInputMessaging:
+        'No puedo ayudarte con ese mensaje. Pregúntame por políticas, procesos o reservas de Redeban.',
+      blockedOutputsMessaging: 'No encontré una respuesta confiable en las fuentes a las que tengo acceso.',
+      crossRegionConfig: { guardrailProfileArn: perfilGuardrail },
+      contentPolicyConfig: {
+        contentFiltersTierConfig: { tierName: 'STANDARD' },
+        filtersConfig: [
+          // PROMPT_ATTACK solo admite la entrada: la salida debe ir en NONE.
+          { type: 'PROMPT_ATTACK', inputStrength: 'HIGH', outputStrength: 'NONE' },
+          // LOW en la entrada para que el Policy Engine pueda negar pedidos como "Borra todos los documentos" (lección 4).
+          { type: 'MISCONDUCT', inputStrength: 'LOW', outputStrength: 'MEDIUM' },
+          { type: 'INSULTS', inputStrength: 'MEDIUM', outputStrength: 'MEDIUM' },
+        ],
+      },
+      sensitiveInformationPolicyConfig: {
+        piiEntitiesConfig: [
+          { type: 'CREDIT_DEBIT_CARD_NUMBER', action: 'BLOCK' },
+          { type: 'PASSWORD', action: 'BLOCK' },
+        ],
+      },
+      // Sin contextualGroundingPolicyConfig: en español bloqueó respuestas correctas (lección 3).
+    });
+
+    // CfnGuardrailVersion no publica una versión nueva sola: cambiar la descripción en cada ajuste (lección 5).
+    const version = new bedrock.CfnGuardrailVersion(this, 'GuardrailVersion', {
+      guardrailIdentifier: guardrail.attrGuardrailId,
+      description: DESCRIPCION_VERSION_GUARDRAIL,
+    });
+
+    this.funcionNucleo.addEnvironment('GUARDRAIL_ID', guardrail.attrGuardrailId);
+    this.funcionNucleo.addEnvironment('GUARDRAIL_VERSION', version.attrVersion);
+    this.funcionNucleo.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['bedrock:ApplyGuardrail'],
+        resources: [
+          guardrail.attrGuardrailArn,
+          // El perfil entre regiones se evalúa en las regiones de su grupo (us-*): única excepción con comodín.
+          `arn:${this.partition}:bedrock:*:${this.account}:guardrail-profile/${PERFIL_GUARDRAIL}`,
+        ],
+      }),
+    );
+    this.funcionNucleo.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['bedrock:InvokeModel'],
+        resources: [`arn:${this.partition}:bedrock:${this.region}::foundation-model/${MODEL_ID}`],
+      }),
+    );
   }
 }
