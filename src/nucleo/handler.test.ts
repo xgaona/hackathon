@@ -979,6 +979,23 @@ describe('módulo opcional de investigación en la API', () => {
     expect(salidaRevisada?.match(/No encontré/g)).toHaveLength(2);
   });
 
+  it('un fallo de Retrieve en investigación responde FAILED sin reformular ni sintetizar', async () => {
+    const e = crearEntorno(true);
+    e.sim.agente.responder = async () => {
+      throw new Error('fallo técnico con contenido privado');
+    };
+    e.sim.bedrock.colaClasificador.push(
+      clas({ tipo: 'INVESTIGACION', subpreguntas: ['Pregunta que falla 1', 'Pregunta que falla 2'] }),
+    );
+
+    const { cuerpo } = await e.enviar('Pregunta compuesta durante una falla técnica');
+
+    expect(cuerpo.status).toBe('FAILED');
+    expect(cuerpo.reply).not.toContain('contenido privado');
+    expect(e.sim.bedrock.llamadasConverse).toHaveLength(1);
+    expect(e.sim.bedrock.contar('respuesta')).toBe(0);
+  });
+
   it('cero fuentes devuelve NO_ANSWER sin síntesis y los logs no contienen pasajes', async () => {
     const e = crearEntorno(true);
     const logs: string[] = [];

@@ -54,10 +54,12 @@ async function esperarFase(tareas: Promise<void>[], plazoMs: number, cerrar: () 
   const vence = new Promise<boolean>((resolve) => {
     temporizador = setTimeout(() => resolve(false), restanteMs);
   });
-  const termino = await Promise.race([completa, vence]);
-  if (temporizador) clearTimeout(temporizador);
-  cerrar();
-  return termino;
+  try {
+    return await Promise.race([completa, vence]);
+  } finally {
+    if (temporizador) clearTimeout(temporizador);
+    cerrar();
+  }
 }
 
 async function esperarResultado<T>(tarea: Promise<T>, plazoMs: number): Promise<T | undefined> {
@@ -86,13 +88,8 @@ async function buscarRonda(
   contador.valor += seleccion.length;
   let aceptar = true;
   const tareas = seleccion.map(async (indice) => {
-    try {
-      const pasajes = await buscarPasajes(ctx, bloques[indice].consulta);
-      if (aceptar) bloques[indice].pasajes = pasajes;
-    } catch {
-      // Una subpregunta fallida queda sin fuente y puede reformularse una vez.
-      if (aceptar) bloques[indice].pasajes = [];
-    }
+    const pasajes = await buscarPasajes(ctx, bloques[indice].consulta);
+    if (aceptar) bloques[indice].pasajes = pasajes;
   });
   const completa = await esperarFase(tareas, plazoBusquedaMs, () => {
     aceptar = false;
