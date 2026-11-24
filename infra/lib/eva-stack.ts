@@ -159,10 +159,14 @@ export class EvaStack extends Stack {
     if (this.vozActiva) {
       // Canal de voz opcional: Transcribe y Polly son solo entrada y salida; el flujo sigue en /v1/conversations.
       const funcionVoz = this.lambdaNode('Voz', 'voz', 'src/voz/handler.ts', Duration.seconds(20));
+      // Excepción justificada a "sin Resource *" (tecnologia.md): transcribe:StartStreamTranscription no admite
+      // tipos de recurso, y polly:SynthesizeSpeech solo se acota a léxicos o voces personalizadas, que EVA no usa.
+      // Se limita a la región del stack.
       funcionVoz.addToRolePolicy(
         new iam.PolicyStatement({
           actions: ['polly:SynthesizeSpeech', 'transcribe:StartStreamTranscription'],
           resources: ['*'],
+          conditions: { StringEquals: { 'aws:RequestedRegion': this.region } },
         }),
       );
       const integracionVoz = new apigateway.LambdaIntegration(funcionVoz);

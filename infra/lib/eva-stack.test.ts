@@ -484,10 +484,15 @@ describe('Seguridad transversal', () => {
       'logs:PutResourcePolicy',
       'logs:DescribeResourcePolicies',
       'logs:DescribeLogGroups',
+      // Canal de voz (solo con voz=true): Transcribe streaming no admite recursos y Polly solo con léxicos.
+      'polly:SynthesizeSpeech',
+      'transcribe:StartStreamTranscription',
     ];
-    for (const d of declaraciones(plantilla)) {
-      if (d.recursos.includes('*')) {
-        expect(d.acciones.every((a) => permitidas.includes(a))).toBe(true);
+    for (const p of [plantilla, sintetizar({ voz: 'true' })]) {
+      for (const d of declaraciones(p)) {
+        if (d.recursos.includes('*')) {
+          expect(d.acciones.every((a) => permitidas.includes(a))).toBe(true);
+        }
       }
     }
   });
