@@ -111,6 +111,7 @@ export async function responderConocimiento(
   consulta: string,
   pasajes: Pasaje[],
   reglasExtra = '',
+  transformarTexto: (texto: string) => string = (texto) => texto,
 ): Promise<ResultadoConocimiento> {
   const lista = pasajes
     .map((p, i) => `[${i + 1}] (${p.title}${p.seccion ? ` — ${p.seccion}` : ''}) ${p.texto}`)
@@ -121,8 +122,9 @@ export async function responderConocimiento(
     messages: [{ role: 'user', content: [{ text: `<pasajes>\n${lista}\n</pasajes>\n\nPregunta: ${consulta}` }] }],
     inferenceConfig: { temperature: 0, maxTokens: 500 },
   });
-  const crudo = textoDeConverse(r);
-  if (!crudo || crudo.startsWith('NO_ENCONTRADO')) return { ok: false };
+  const recibido = textoDeConverse(r);
+  if (!recibido || recibido.startsWith('NO_ENCONTRADO')) return { ok: false };
+  const crudo = transformarTexto(recibido);
 
   let intervino: boolean;
   try {
