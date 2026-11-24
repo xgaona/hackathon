@@ -1,0 +1,514 @@
+openapi: 3.1.0
+info:
+  title: Jira Cloud REST v3 - Subconjunto usado por EVA (gestión de proyectos)
+  version: 1.0.0
+  summary: Subconjunto de la API pública Jira Cloud REST v3 consumido por el conector Jira.
+  description: |
+    Subconjunto **reducido** de la API pública de Jira Cloud REST v3. Solo se modelan los campos que
+    EVA usa; el mock implementa este subconjunto. Si Redeban usa Jira Data Center, cambia el adaptador,
+    no el núcleo (RNF-15).
+
+    Capacidades del catálogo cubiertas:
+    - `issue.get` → `GET /rest/api/3/issue/{issueIdOrKey}`
+    - `issue.search` → `GET /rest/api/3/search/jql` (JQL construido por EVA desde parámetros validados; nunca JQL libre del modelo, RF-19.2)
+    - `project.summary` → `GET /rest/api/3/project/{projectIdOrKey}` + `search/jql` agregados por estado
+    - `issue.create` → `POST /rest/api/3/issue` (escritura)
+    - `issue.transition` → `GET|POST /rest/api/3/issue/{issueIdOrKey}/transitions` (escritura)
+    - `issue.comment` → `POST /rest/api/3/issue/{issueIdOrKey}/comment` (escritura)
+
+    Modo de autenticación: `THIRD_PARTY_OAUTH` (OAuth 2.0 3LO de Atlassian). Jira aplica los permisos del colaborador.
+    Jira no ofrece cabecera de idempotencia en la creación: EVA usa su bloqueo `IDEMP#` y agrega la etiqueta
+    `eva-idem-<hash>` para reconciliar reintentos (ver design.md §8.3).
+
+    Datos de ejemplo 100 % sintéticos.
+  license:
+    name: Uso interno Redeban - documentación EVA
+    identifier: LicenseRef-Redeban-Internal
+servers:
+  - url: http://127.0.0.1:4012
+    description: Mock local (Prism) para CI y pruebas de contrato
+  - url: https://api.atlassian.com/ex/jira/{cloudId}
+    description: Jira Cloud vía OAuth 2.0 (3LO)
+    variables:
+      cloudId:
+        default: 00000000-0000-0000-0000-000000000000
+        description: Identificador del sitio Jira de Redeban.
+tags:
+  - name: Issues
+    description: Consulta y gestión de issues.
+  - name: Proyectos
+    description: Información de proyectos.
+security:
+  - atlassianOAuth: [read:jira-work]
+paths:
+  /rest/api/3/issue/{issueIdOrKey}:
+    get:
+      tags: [Issues]
+      operationId: issueGet
+      summary: Obtener un issue
+      parameters:
+        - $ref: '#/components/parameters/IssueIdOrKey'
+        - $ref: '#/components/parameters/MockScenario'
+        - name: fields
+          in: query
+          required: false
+          description: Campos solicitados. EVA solo pide los autorizados.
+          schema: { type: string, default: 'summary,status,assignee,priority,duedate,updated' }
+      responses:
+        '200':
+          description: Issue solicitado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Issue' }
+              examples:
+                ok:
+                  value:
+                    id: '10042'
+                    key: PROJ-123
+                    fields:
+                      summary: Ajustar reporte semanal de conciliación (sintético)
+                      status: { name: En curso }
+                      assignee: { displayName: Colaborador Demo }
+                      priority: { name: Medium }
+                      duedate: '2026-10-24'
+                      updated: '2026-10-15T18:20:00.000+0000'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/ServerError' }
+  /rest/api/3/search/jql:
+    get:
+      tags: [Issues]
+      operationId: issueSearch
+      summary: Buscar issues con JQL construido por EVA
+      parameters:
+        - $ref: '#/components/parameters/MockScenario'
+        - name: jql
+          in: query
+          required: true
+          description: 'Ejemplo generado por plantilla: project = PROJ AND assignee = currentUser() AND statusCategory != Done'
+          schema: { type: string, maxLength: 1000 }
+        - name: fields
+          in: query
+          required: false
+          schema: { type: string, default: 'summary,status,assignee,duedate' }
+        - name: maxResults
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+        - name: nextPageToken
+          in: query
+          required: false
+          schema: { type: string, maxLength: 1024 }
+      responses:
+        '200':
+          description: Resultados visibles para el colaborador.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SearchResult' }
+              examples:
+                ok:
+                  value:
+                    isLast: true
+                    issues:
+                      - id: '10042'
+                        key: PROJ-123
+                        fields:
+                          summary: Ajustar reporte semanal de conciliación (sintético)
+                          status: { name: En curso }
+                          duedate: '2026-10-24'
+                      - id: '10051'
+                        key: PROJ-131
+                        fields:
+                          summary: Revisar tablero del sprint 18 (sintético)
+                          status: { name: Por hacer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/ServerError' }
+  /rest/api/3/project/{projectIdOrKey}:
+    get:
+      tags: [Proyectos]
+      operationId: projectGet
+      summary: Obtener un proyecto
+      parameters:
+        - $ref: '#/components/parameters/MockScenario'
+        - name: projectIdOrKey
+          in: path
+          required: true
+          schema: { type: string, pattern: '^[A-Z][A-Z0-9]{1,9}$|^[0-9]+$' }
+      responses:
+        '200':
+          description: Proyecto.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+              examples:
+                ok:
+                  value:
+                    id: '10000'
+                    key: PROJ
+                    name: Proyecto Piloto EVA (sintético)
+                    lead: { displayName: Líder Demo }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/ServerError' }
+  /rest/api/3/issue:
+    post:
+      tags: [Issues]
+      operationId: issueCreate
+      summary: Crear un issue (escritura confirmada)
+      security:
+        - atlassianOAuth: [write:jira-work]
+      parameters:
+        - $ref: '#/components/parameters/MockScenario'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IssueCreateRequest' }
+            examples:
+              tarea:
+                value:
+                  fields:
+                    project: { key: PROJ }
+                    issuetype: { name: Task }
+                    summary: Preparar demo del conector Skkeda
+                    labels: [eva, eva-idem-3b1f0c9a7e2d4f61]
+                    description:
+                      type: doc
+                      version: 1
+                      content:
+                        - type: paragraph
+                          content:
+                            - { type: text, text: Creado desde EVA con confirmación del colaborador. }
+      responses:
+        '201':
+          description: Issue creado. `key` es la referencia verificable.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreatedIssue' }
+              examples:
+                ok:
+                  value: { id: '10077', key: PROJ-140, self: 'http://127.0.0.1:4012/rest/api/3/issue/10077' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/ServerError' }
+  /rest/api/3/issue/{issueIdOrKey}/transitions:
+    get:
+      tags: [Issues]
+      operationId: issueTransitionsGet
+      summary: Listar transiciones disponibles para el colaborador
+      parameters:
+        - $ref: '#/components/parameters/IssueIdOrKey'
+        - $ref: '#/components/parameters/MockScenario'
+      responses:
+        '200':
+          description: Transiciones permitidas por el flujo de Jira.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Transitions' }
+              examples:
+                ok:
+                  value:
+                    transitions:
+                      - { id: '31', name: Terminar, to: { name: Finalizada } }
+                      - { id: '21', name: Bloquear, to: { name: Bloqueada } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/ServerError' }
+    post:
+      tags: [Issues]
+      operationId: issueTransition
+      summary: Ejecutar una transición (escritura confirmada)
+      security:
+        - atlassianOAuth: [write:jira-work]
+      parameters:
+        - $ref: '#/components/parameters/IssueIdOrKey'
+        - $ref: '#/components/parameters/MockScenario'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [transition]
+              properties:
+                transition:
+                  type: object
+                  required: [id]
+                  properties:
+                    id: { type: string, pattern: '^[0-9]+$' }
+            examples:
+              terminar:
+                value: { transition: { id: '31' } }
+      responses:
+        '204':
+          description: Transición aplicada. Solo entonces EVA informa éxito (RF-19.6).
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/ServerError' }
+  /rest/api/3/issue/{issueIdOrKey}/comment:
+    post:
+      tags: [Issues]
+      operationId: issueComment
+      summary: Agregar un comentario (escritura confirmada)
+      security:
+        - atlassianOAuth: [write:jira-work]
+      parameters:
+        - $ref: '#/components/parameters/IssueIdOrKey'
+        - $ref: '#/components/parameters/MockScenario'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body: { $ref: '#/components/schemas/AdfDocument' }
+            examples:
+              comentario:
+                value:
+                  body:
+                    type: doc
+                    version: 1
+                    content:
+                      - type: paragraph
+                        content:
+                          - { type: text, text: Avance revisado con el equipo. }
+      responses:
+        '201':
+          description: Comentario creado.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, created]
+                properties:
+                  id: { type: string }
+                  created: { type: string }
+              examples:
+                ok:
+                  value: { id: '20011', created: '2026-10-16T15:10:00.000+0000' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/ServerError' }
+components:
+  securitySchemes:
+    atlassianOAuth:
+      type: oauth2
+      description: OAuth 2.0 (3LO) de Atlassian. Tokens del colaborador en la bóveda de tokens de EVA, nunca en el navegador ni en el modelo (RS-18).
+      flows:
+        authorizationCode:
+          authorizationUrl: https://auth.atlassian.com/authorize
+          tokenUrl: https://auth.atlassian.com/oauth/token
+          scopes:
+            read:jira-work: Leer issues y proyectos.
+            write:jira-work: Crear issues, transicionar y comentar.
+            offline_access: Token de actualización.
+  parameters:
+    IssueIdOrKey:
+      name: issueIdOrKey
+      in: path
+      required: true
+      schema: { type: string, pattern: '^[A-Z][A-Z0-9]{1,9}-[0-9]{1,7}$|^[0-9]+$' }
+    MockScenario:
+      name: X-Mock-Scenario
+      in: header
+      required: false
+      description: Solo mocks (dev/test). Jira real la ignora y el adaptador de producción nunca la envía (RS-17).
+      schema:
+        type: string
+        enum: [ok, timeout, server_error, access_denied, conflict, rate_limited, stale_classification]
+        default: ok
+  responses:
+    BadRequest:
+      description: Solicitud inválida.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/JiraError' }
+          examples:
+            error:
+              value: { errorMessages: [], errors: { summary: Se requiere un resumen. } }
+    Unauthorized:
+      description: Token ausente, vencido o revocado; EVA solicita nuevo consentimiento (RF-11.3).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/JiraError' }
+          examples:
+            error:
+              value: { errorMessages: [Unauthorized], errors: {} }
+    Forbidden:
+      description: El colaborador no tiene permiso en el proyecto o issue.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/JiraError' }
+          examples:
+            access_denied:
+              value: { errorMessages: [No tiene permiso para realizar esta acción.], errors: {} }
+    NotFound:
+      description: No existe o no es visible para el colaborador.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/JiraError' }
+          examples:
+            error:
+              value: { errorMessages: [El issue no existe o no tiene permiso para verlo.], errors: {} }
+    Conflict:
+      description: Estado cambiado por otro usuario; la transición ya no aplica.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/JiraError' }
+          examples:
+            conflict:
+              value: { errorMessages: [La transición no es válida para el estado actual.], errors: {} }
+    RateLimited:
+      description: Límite de solicitudes excedido.
+      headers:
+        Retry-After:
+          description: Segundos sugeridos antes de reintentar.
+          schema: { type: integer, minimum: 1 }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/JiraError' }
+          examples:
+            rate_limited:
+              value: { errorMessages: [Rate limit exceeded], errors: {} }
+    ServerError:
+      description: Error interno.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/JiraError' }
+          examples:
+            server_error:
+              value: { errorMessages: [Internal server error], errors: {} }
+  schemas:
+    NamedRef:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+    UserRef:
+      type: object
+      properties:
+        displayName: { type: string }
+    IssueFields:
+      type: object
+      properties:
+        summary: { type: string, maxLength: 255 }
+        status: { $ref: '#/components/schemas/NamedRef' }
+        assignee:
+          oneOf:
+            - $ref: '#/components/schemas/UserRef'
+            - type: 'null'
+        priority: { $ref: '#/components/schemas/NamedRef' }
+        duedate: { type: [string, 'null'], format: date }
+        updated: { type: string }
+    Issue:
+      type: object
+      required: [id, key, fields]
+      properties:
+        id: { type: string }
+        key: { type: string }
+        fields: { $ref: '#/components/schemas/IssueFields' }
+    SearchResult:
+      type: object
+      required: [issues, isLast]
+      properties:
+        issues:
+          type: array
+          items: { $ref: '#/components/schemas/Issue' }
+        nextPageToken: { type: string }
+        isLast: { type: boolean }
+    Project:
+      type: object
+      required: [id, key, name]
+      properties:
+        id: { type: string }
+        key: { type: string }
+        name: { type: string }
+        lead: { $ref: '#/components/schemas/UserRef' }
+    AdfDocument:
+      type: object
+      description: Atlassian Document Format (subconjunto texto plano).
+      required: [type, version, content]
+      properties:
+        type: { type: string, const: doc }
+        version: { type: integer, const: 1 }
+        content:
+          type: array
+          items:
+            type: object
+            required: [type]
+            properties:
+              type: { type: string }
+              content:
+                type: array
+                items:
+                  type: object
+                  required: [type]
+                  properties:
+                    type: { type: string }
+                    text: { type: string, maxLength: 5000 }
+    IssueCreateRequest:
+      type: object
+      required: [fields]
+      properties:
+        fields:
+          type: object
+          required: [project, issuetype, summary]
+          properties:
+            project:
+              type: object
+              required: [key]
+              properties:
+                key: { type: string, pattern: '^[A-Z][A-Z0-9]{1,9}$' }
+            issuetype: { $ref: '#/components/schemas/NamedRef' }
+            summary: { type: string, minLength: 3, maxLength: 255 }
+            labels:
+              type: array
+              maxItems: 10
+              items: { type: string, maxLength: 64 }
+            description: { $ref: '#/components/schemas/AdfDocument' }
+    CreatedIssue:
+      type: object
+      required: [id, key, self]
+      properties:
+        id: { type: string }
+        key: { type: string }
+        self: { type: string, format: uri }
+    Transitions:
+      type: object
+      required: [transitions]
+      properties:
+        transitions:
+          type: array
+          items:
+            type: object
+            required: [id, name, to]
+            properties:
+              id: { type: string }
+              name: { type: string }
+              to: { $ref: '#/components/schemas/NamedRef' }
+    JiraError:
+      type: object
+      properties:
+        errorMessages:
+          type: array
+          items: { type: string }
+        errors:
+          type: object
+          additionalProperties: { type: string }

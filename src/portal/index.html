@@ -1,0 +1,59 @@
+<!doctype html>
+<!-- Boilerplate del kit: estructura del portal. La lógica va en app.js (spec infra-y-portal). No renombrar los id. -->
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EVA · Redeban</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="barra">
+      <img src="assets/logo-redeban-blanco.png" alt="Redeban" class="logo" />
+      <span class="producto">EVA · Asistente virtual</span>
+      <span id="usuario-activo" class="usuario" hidden></span>
+    </header>
+
+    <main class="contenido">
+      <section id="vista-ingreso" class="tarjeta ingreso" aria-labelledby="titulo-ingreso">
+        <h1 id="titulo-ingreso">Ingresa a EVA</h1>
+        <form id="form-ingreso" autocomplete="off">
+          <label for="usuario">Usuario</label>
+          <input id="usuario" name="usuario" required />
+          <label for="clave">Contraseña</label>
+          <input id="clave" name="clave" type="password" required />
+          <button type="submit">Ingresar</button>
+          <p id="error-ingreso" class="error" role="alert" hidden></p>
+        </form>
+      </section>
+
+      <section id="vista-chat" class="chat" aria-label="Conversación con EVA" hidden>
+        <ol id="mensajes" class="mensajes" aria-live="polite"></ol>
+        <div id="sugerencias" class="sugerencias" role="group" aria-label="Sugerencias"></div>
+        <form id="form-mensaje" class="entrada">
+          <label for="mensaje" class="oculto">Escribe tu mensaje</label>
+          <input id="mensaje" name="mensaje" placeholder="Pregúntale a EVA…" autocomplete="off" required />
+          <button type="submit">Enviar</button>
+        </form>
+      </section>
+    </main>
+
+    <template id="plantilla-mensaje">
+      <li class="mensaje">
+        <p class="texto"></p>
+        <ul class="fuentes" aria-label="Fuentes"></ul>
+        <details class="pasos" hidden>
+          <summary>Cómo lo investigué</summary>
+          <ol class="lista-pasos"></ol>
+        </details>
+        <div class="accion" hidden>
+          <dl class="resumen"></dl>
+          <button type="button" class="confirmar">Confirmar</button>
+          <button type="button" class="cancelar">Cancelar</button>
+        </div>
+      </li>
+    </template>
+
+    <script src="app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,553 @@
+openapi: 3.1.0
+info:
+  title: Skkeda - Contrato canónico EVA (reservas de puestos y salas)
+  version: 1.0.0-supuesto
+  summary: Contrato canónico definido por EVA para el conector Skkeda.
+  description: |
+    **SUPUESTO: validar con proveedor.** No existe documentación pública de la API de Skkeda.
+    Este contrato define lo que EVA necesita (capa anticorrupción). Cuando el proveedor entregue
+    su especificación, solo cambia el adaptador `services/connectors/skkeda`.
+
+    Capacidades del catálogo cubiertas:
+    - `site.list` → `GET /sites`
+    - `space.availability` → `GET /availability`
+    - `booking.list` → `GET /bookings` (solo reservas propias)
+    - `booking.create` → `POST /bookings` (escritura, confirmación + idempotencia)
+    - `booking.cancel` → `DELETE /bookings/{bookingId}` (escritura, confirmación)
+    - Ingesta → `GET /knowledge/policies` (sedes y reglas de reserva, contenido `GENERAL`)
+
+    Modo de autenticación supuesto: `SERVICE_ACCOUNT_USER_CONTEXT` (API key de servicio + `X-User-Principal`
+    + `X-User-Assertion`). Skkeda es la autoridad de reglas de reserva (anticipación, cupos, horarios).
+
+    Datos de ejemplo 100 % sintéticos.
+  license:
+    name: Uso interno Redeban - documentación EVA
+    identifier: LicenseRef-Redeban-Internal
+servers:
+  - url: http://127.0.0.1:4011
+    description: Mock local (Prism) para CI y pruebas de contrato
+  - url: https://mocks.dev.eva.redeban.internal/skkeda/v1
+    description: Mock desplegado en dev/test (marcador de posición)
+tags:
+  - name: Sedes
+    description: Sedes, pisos y tipos de espacio.
+  - name: Reservas
+    description: Disponibilidad y reservas del colaborador.
+  - name: Conocimiento
+    description: Contenido de uso general para la ingesta.
+  - name: Salud
+    description: Disponibilidad del servicio.
+security:
+  - serviceApiKey: []
+paths:
+  /sites:
+    get:
+      tags: [Sedes]
+      operationId: siteList
+      summary: Listar sedes y pisos habilitados para reserva
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/MockScenario'
+        - name: city
+          in: query
+          required: false
+          schema: { type: string, maxLength: 80 }
+      responses:
+        '200':
+          description: Sedes disponibles.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Site' }
+              examples:
+                ok:
+                  value:
+                    items:
+                      - siteId: SITE-BOG-01
+                        name: Sede Norte (sintética)
+                        city: Bogotá
+                        floors: [3, 4, 5]
+                        spaceTypes: [DESK, ROOM]
+                      - siteId: SITE-MED-01
+                        name: Sede Poblado (sintética)
+                        city: Medellín
+                        floors: [2]
+                        spaceTypes: [DESK]
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/ServerError' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /availability:
+    get:
+      tags: [Reservas]
+      operationId: spaceAvailability
+      summary: Consultar espacios disponibles por sede, fecha, tipo y franja
+      parameters:
+        - $ref: '#/components/parameters/UserPrincipal'
+        - $ref: '#/components/parameters/UserAssertion'
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/MockScenario'
+        - name: siteId
+          in: query
+          required: true
+          schema: { type: string, pattern: '^SITE-[A-Z0-9-]{2,20}$' }
+        - name: date
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: spaceType
+          in: query
+          required: true
+          schema: { $ref: '#/components/schemas/SpaceType' }
+        - name: floor
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0, maximum: 99 }
+        - name: from
+          in: query
+          required: false
+          description: Hora inicial HH:mm (salas).
+          schema: { type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' }
+        - name: to
+          in: query
+          required: false
+          description: Hora final HH:mm (salas).
+          schema: { type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' }
+      responses:
+        '200':
+          description: Espacios disponibles.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    maxItems: 50
+                    items: { $ref: '#/components/schemas/Space' }
+              examples:
+                ok:
+                  value:
+                    items:
+                      - spaceId: DESK-BOG01-4-012
+                        siteId: SITE-BOG-01
+                        floor: 4
+                        type: DESK
+                        label: Puesto 4-012 (zona ventana)
+                      - spaceId: DESK-BOG01-4-015
+                        siteId: SITE-BOG-01
+                        floor: 4
+                        type: DESK
+                        label: Puesto 4-015
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '422': { $ref: '#/components/responses/RuleViolation' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/ServerError' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /bookings:
+    get:
+      tags: [Reservas]
+      operationId: bookingList
+      summary: Listar las reservas del colaborador
+      parameters:
+        - $ref: '#/components/parameters/UserPrincipal'
+        - $ref: '#/components/parameters/UserAssertion'
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/MockScenario'
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [ACTIVE, CANCELLED, ALL], default: ACTIVE }
+      responses:
+        '200':
+          description: Reservas propias. Skkeda solo devuelve las del usuario declarado (RS-09).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Booking' }
+              examples:
+                ok:
+                  value:
+                    items:
+                      - bookingId: BK-SYN-20261020-0042
+                        spaceId: DESK-BOG01-4-012
+                        siteId: SITE-BOG-01
+                        floor: 4
+                        date: '2026-10-20'
+                        status: ACTIVE
+                        createdAt: '2026-10-16T15:02:00Z'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/ServerError' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+    post:
+      tags: [Reservas]
+      operationId: bookingCreate
+      summary: Crear una reserva (escritura confirmada e idempotente)
+      parameters:
+        - $ref: '#/components/parameters/UserPrincipal'
+        - $ref: '#/components/parameters/UserAssertion'
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/MockScenario'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BookingRequest' }
+            examples:
+              puesto:
+                value: { spaceId: DESK-BOG01-4-012, date: '2026-10-20' }
+      responses:
+        '201':
+          description: Reserva creada. `bookingId` es la referencia verificable (RF-18.6).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+              examples:
+                ok:
+                  value:
+                    bookingId: BK-SYN-20261020-0042
+                    spaceId: DESK-BOG01-4-012
+                    siteId: SITE-BOG-01
+                    floor: 4
+                    date: '2026-10-20'
+                    status: ACTIVE
+                    createdAt: '2026-10-16T15:02:00Z'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '409':
+          description: Conflicto, el espacio ya fue tomado. Incluye alternativas (RF-18.5).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConflictError' }
+              examples:
+                conflict:
+                  value:
+                    code: CONFLICT
+                    message: El espacio ya no está disponible.
+                    correlationId: c-7f3a9d
+                    alternatives:
+                      - spaceId: DESK-BOG01-4-015
+                        siteId: SITE-BOG-01
+                        floor: 4
+                        type: DESK
+                        label: Puesto 4-015
+        '422': { $ref: '#/components/responses/RuleViolation' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/ServerError' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /bookings/{bookingId}:
+    delete:
+      tags: [Reservas]
+      operationId: bookingCancel
+      summary: Cancelar una reserva propia (escritura confirmada)
+      parameters:
+        - $ref: '#/components/parameters/UserPrincipal'
+        - $ref: '#/components/parameters/UserAssertion'
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/MockScenario'
+        - name: bookingId
+          in: path
+          required: true
+          schema: { type: string, pattern: '^BK-[A-Z0-9-]{3,40}$' }
+      responses:
+        '204':
+          description: Reserva cancelada (o ya cancelada con la misma clave de idempotencia).
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: La reserva no se puede cancelar (ya inició o ya fue cancelada).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              examples:
+                conflict:
+                  value: { code: CONFLICT, message: La reserva ya inició., correlationId: c-7f3a9d }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/ServerError' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /knowledge/policies:
+    get:
+      tags: [Conocimiento]
+      operationId: policyListGeneral
+      summary: Listar sedes y reglas de reserva para ingesta incremental
+      description: Solo rol `eva-ingestion`. EVA descarta todo ítem que no sea `GENERAL` (RS-16).
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/MockScenario'
+        - name: updatedSince
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string, maxLength: 512 }
+      responses:
+        '200':
+          description: Página de contenido para ingesta.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/KnowledgePage' }
+              examples:
+                ok:
+                  value:
+                    nextCursor: null
+                    items:
+                      - itemId: RULE-BOG-01
+                        title: Reglas de reserva Sede Norte (sintético)
+                        classification: GENERAL
+                        contentType: text/markdown
+                        text: Los puestos se reservan con máximo 7 días de anticipación. Las salas, por franjas de 30 minutos.
+                        sourceUri: https://skkeda.example.invalid/sites/SITE-BOG-01/rules
+                        updatedAt: '2026-10-01T12:00:00Z'
+                        deleted: false
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/ServerError' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /health:
+    get:
+      tags: [Salud]
+      operationId: healthGet
+      summary: Estado del servicio
+      security: []
+      responses:
+        '200':
+          description: Servicio disponible.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, enum: [UP, DEGRADED] }
+              examples:
+                ok:
+                  value: { status: UP }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+components:
+  securitySchemes:
+    serviceApiKey:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+      description: Llave de servicio de EVA (SUPUESTO). Secreto en `eva/<env>/skkeda/service-account`, con rotación.
+  parameters:
+    UserPrincipal:
+      name: X-User-Principal
+      in: header
+      required: true
+      description: UPN del colaborador en el Directorio Activo.
+      schema: { type: string, format: email, maxLength: 256 }
+      examples:
+        sintetico: { value: colaborador.demo@redeban.example }
+    UserAssertion:
+      name: X-User-Assertion
+      in: header
+      required: true
+      description: JWT de 60 s firmado por EVA (KMS) con `sub`=UPN y `aud`=skkeda.
+      schema: { type: string, minLength: 20, maxLength: 4096 }
+      examples:
+        sintetico: { value: eyJhbGciOiJQUzI1NiJ9.sintetico.firma }
+    CorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: true
+      schema: { type: string, pattern: '^c-[a-z0-9]{4,40}$' }
+      examples:
+        sintetico: { value: c-7f3a9d }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Clave de idempotencia de EVA (RNF-06). Repetirla devuelve el mismo resultado sin duplicar.
+      schema: { type: string, minLength: 16, maxLength: 128 }
+      examples:
+        sintetico: { value: idem-3b1f0c9a7e2d4f61 }
+    MockScenario:
+      name: X-Mock-Scenario
+      in: header
+      required: false
+      description: Solo mocks (dev/test). El adaptador de producción nunca la envía (RS-17).
+      schema:
+        type: string
+        enum: [ok, timeout, server_error, access_denied, conflict, rate_limited, stale_classification]
+        default: ok
+  responses:
+    BadRequest:
+      description: Parámetros inválidos.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            error:
+              value: { code: INVALID_PARAMETER, message: Fecha fuera de rango., correlationId: c-7f3a9d }
+    Unauthorized:
+      description: Credencial de servicio o aserción inválida.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            error:
+              value: { code: UNAUTHENTICATED, message: Llave de servicio inválida., correlationId: c-7f3a9d }
+    AccessDenied:
+      description: El colaborador no puede reservar en la sede o espacio solicitado.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            access_denied:
+              value: { code: ACCESS_DENIED, message: Usuario sin permiso en la sede., correlationId: c-7f3a9d }
+    NotFound:
+      description: Recurso inexistente.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            error:
+              value: { code: NOT_FOUND, message: Reserva no encontrada., correlationId: c-7f3a9d }
+    RuleViolation:
+      description: La solicitud infringe una regla de Skkeda (anticipación, cupo, horario).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            error:
+              value: { code: RULE_VIOLATION, message: Solo se permite reservar con 7 días de anticipación., correlationId: c-7f3a9d }
+    RateLimited:
+      description: Límite de solicitudes excedido.
+      headers:
+        Retry-After:
+          description: Segundos sugeridos antes de reintentar.
+          schema: { type: integer, minimum: 1 }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            rate_limited:
+              value: { code: RATE_LIMITED, message: Demasiadas solicitudes., correlationId: c-7f3a9d }
+    ServerError:
+      description: Error interno del proveedor.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            server_error:
+              value: { code: SOURCE_ERROR, message: Error interno., correlationId: c-7f3a9d }
+    Unavailable:
+      description: Servicio no disponible.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            unavailable:
+              value: { code: SOURCE_UNAVAILABLE, message: Servicio no disponible., correlationId: c-7f3a9d }
+  schemas:
+    SpaceType:
+      type: string
+      enum: [DESK, ROOM]
+    Site:
+      type: object
+      required: [siteId, name, city, floors, spaceTypes]
+      properties:
+        siteId: { type: string }
+        name: { type: string, maxLength: 120 }
+        city: { type: string, maxLength: 80 }
+        floors:
+          type: array
+          items: { type: integer }
+        spaceTypes:
+          type: array
+          items: { $ref: '#/components/schemas/SpaceType' }
+    Space:
+      type: object
+      required: [spaceId, siteId, floor, type, label]
+      properties:
+        spaceId: { type: string }
+        siteId: { type: string }
+        floor: { type: integer }
+        type: { $ref: '#/components/schemas/SpaceType' }
+        label: { type: string, maxLength: 120 }
+        capacity: { type: integer, minimum: 1, description: Solo salas. }
+    BookingRequest:
+      type: object
+      required: [spaceId, date]
+      additionalProperties: false
+      properties:
+        spaceId: { type: string, maxLength: 60 }
+        date: { type: string, format: date }
+        from: { type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' }
+        to: { type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' }
+    Booking:
+      type: object
+      required: [bookingId, spaceId, siteId, floor, date, status, createdAt]
+      properties:
+        bookingId: { type: string }
+        spaceId: { type: string }
+        siteId: { type: string }
+        floor: { type: integer }
+        date: { type: string, format: date }
+        from: { type: string }
+        to: { type: string }
+        status: { type: string, enum: [ACTIVE, CANCELLED] }
+        createdAt: { type: string, format: date-time }
+    KnowledgeItem:
+      type: object
+      description: Ítem del contrato común de ingesta (RF-13.1).
+      required: [itemId, title, classification, contentType, text, sourceUri, updatedAt, deleted]
+      properties:
+        itemId: { type: string }
+        title: { type: string, maxLength: 300 }
+        classification: { type: string, enum: [GENERAL, RESTRICTED] }
+        contentType: { type: string, enum: [text/plain, text/markdown, text/html] }
+        text: { type: string, maxLength: 200000 }
+        sourceUri: { type: string, format: uri }
+        updatedAt: { type: string, format: date-time }
+        deleted: { type: boolean }
+    KnowledgePage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        nextCursor: { type: [string, 'null'] }
+        items:
+          type: array
+          maxItems: 100
+          items: { $ref: '#/components/schemas/KnowledgeItem' }
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [INVALID_PARAMETER, UNAUTHENTICATED, ACCESS_DENIED, NOT_FOUND, CONFLICT, RULE_VIOLATION, RATE_LIMITED, SOURCE_ERROR, SOURCE_UNAVAILABLE]
+        message: { type: string, maxLength: 500 }
+        correlationId: { type: string }
+    ConflictError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          required: [alternatives]
+          properties:
+            alternatives:
+              type: array
+              maxItems: 5
+              items: { $ref: '#/components/schemas/Space' }

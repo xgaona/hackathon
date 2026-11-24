@@ -1,0 +1,45 @@
+{
+  "name": "hackathon",
+  "version": "0.1.0",
+  "private": true,
+  "description": "EVA, asistente virtual corporativo de Redeban (MVP del hackathon)",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test": "jest",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "synth": "cdk synth -c env=dev",
+    "deploy": "cdk deploy --all -c env=dev --require-approval never",
+    "prueba-humo": "node infra/scripts/prueba-humo.mjs",
+    "evaluar": "node infra/scripts/evaluar-conocimiento.mjs"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-agent": "3.1171.0",
+    "@aws-sdk/client-bedrock-agent-runtime": "3.1171.0",
+    "@aws-sdk/client-bedrock-runtime": "3.1171.0",
+    "@aws-sdk/client-dynamodb": "3.1171.0",
+    "@aws-sdk/client-sfn": "3.1171.0",
+    "@aws-sdk/lib-dynamodb": "3.1171.0",
+    "ajv": "8.20.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/aws-lambda": "8.10.147",
+    "@types/jest": "29.5.14",
+    "@types/node": "22.10.2",
+    "aws-cdk": "2.1145.0",
+    "aws-cdk-lib": "2.273.0",
+    "constructs": "10.8.1",
+    "esbuild": "0.28.2",
+    "eslint": "10.15.0",
+    "jest": "29.7.0",
+    "prettier": "3.10.1",
+    "ts-jest": "29.2.5",
+    "ts-node": "10.9.2",
+    "typescript": "5.6.3",
+    "typescript-eslint": "8.73.0"
+  }
+}

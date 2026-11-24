@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+cdk.out/
+cdk.context.json
+*.js.map
+.env
+.env.*
+!.env.example
+msg.json

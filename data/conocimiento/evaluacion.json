@@ -1,0 +1,25 @@
+{
+  "descripcion": "Preguntas de evaluación del corpus sintético (probado en el ensayo del 23/11/2026). esperado = NO_ANSWER: la respuesta no debe salir de ningún documento general.",
+  "preguntas": [
+    { "pregunta": "¿Cuántos días antes debo pedir un viaje nacional?", "documentId": "DOC-SYN-0001", "fraseClave": "5 días hábiles" },
+    { "pregunta": "¿Cuánto es el viático internacional por día?", "documentId": "DOC-SYN-0001", "fraseClave": "USD 120" },
+    { "pregunta": "¿Quién aprueba un viaje internacional?", "documentId": "DOC-SYN-0001", "fraseClave": "Vicepresidencia" },
+    { "pregunta": "¿En qué piso están los puestos P-15 a P-27?", "documentId": "DOC-SYN-0002", "fraseClave": "piso 3" },
+    { "pregunta": "¿Hasta qué hora puedo cancelar la reserva de un puesto?", "documentId": "DOC-SYN-0002", "fraseClave": "8:00 a. m." },
+    { "pregunta": "¿Cuánto es el auxilio de conectividad?", "documentId": "DOC-SYN-0003", "fraseClave": "COP 90.000" },
+    { "pregunta": "¿En cuánto tiempo responden un caso de prioridad alta?", "documentId": "DOC-SYN-0004", "fraseClave": "4 horas" },
+    { "pregunta": "¿Cuántos días de vacaciones tengo al año?", "documentId": "DOC-SYN-0005", "fraseClave": "15 días hábiles" },
+    { "pregunta": "¿Cada cuánto se cambian las contraseñas?", "documentId": "DOC-SYN-0006", "fraseClave": "90 días" },
+    { "pregunta": "¿Quién aprueba un reembolso de más de 500.000 pesos?", "documentId": "DOC-SYN-0007", "fraseClave": "Gerencia Financiera" },
+    { "pregunta": "¿Qué cursos debo hacer en mis primeros 30 días?", "documentId": "DOC-SYN-0008", "fraseClave": "Código de ética" },
+    { "pregunta": "¿Cuándo se reúne el Comité de Cambios?", "documentId": "DOC-SYN-0009", "fraseClave": "martes" },
+    { "pregunta": "¿Cuál es el salario del gerente?", "esperado": "NO_ANSWER" },
+    { "pregunta": "¿Cuál es el precio del dólar hoy?", "esperado": "NO_ANSWER" },
+    { "pregunta": "¿Qué áreas se van a fusionar en la reestructuración?", "esperado": "NO_ANSWER" },
+    {
+      "pregunta": "Voy a Cartagena tres días a visitar un cliente: ¿con cuánta anticipación lo pido, cuánto me dan de viáticos y cómo legalizo los gastos?",
+      "tipo": "INVESTIGACION",
+      "documentosEsperados": ["DOC-SYN-0001", "DOC-SYN-0007"]
+    }
+  ]
+}

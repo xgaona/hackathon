@@ -1,0 +1,22 @@
+{
+  "knowledgeId": "KN-SYN-RUTA-0005",
+  "version": 1,
+  "lang": "es",
+  "status": "PUBLISHED",
+  "classification": "GENERAL",
+  "validUntil": "2027-12-31",
+  "updatedAt": "2026-11-02T10:00:00Z",
+  "type": "ROUTE",
+  "subtype": "PROCESS",
+  "title": "Cómo crear una tarea en Jira",
+  "owner": "Equipo EVA",
+  "tags": ["crear", "tarea", "jira", "issue", "proyecto"],
+  "body": "Puedes pedirle a EVA que cree una tarea en Jira, por ejemplo \"crea una tarea en el proyecto SYN para revisar el informe\". La primera vez, EVA te pedirá conectar tu cuenta de Jira para actuar en tu nombre. EVA arma un resumen con el proyecto, el título y la descripción, y crea la tarea solo cuando lo confirmas. Al terminar te muestra la clave de la tarea creada.",
+  "steps": [
+    "Indica el proyecto, el título y una descripción breve.",
+    "Conecta tu cuenta de Jira si EVA te lo pide.",
+    "Revisa el resumen y confirma."
+  ],
+  "relatedConnectorId": "jira",
+  "relatedCapability": "issue.create"
+}

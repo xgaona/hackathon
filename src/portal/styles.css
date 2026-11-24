@@ -1,0 +1,48 @@
+/* Boilerplate del kit: estilos del portal con la marca Redeban (azul #0033A1). */
+:root {
+  --azul: #0033a1;
+  --azul-oscuro: #0b1b4d;
+  --fondo: #f5f7fb;
+  --texto: #14213d;
+  --suave: #4a5568;
+  --borde: #c5d0e6;
+  --naranja: #f5a04a;
+  font-family: 'Poppins', 'Century Gothic', Arial, sans-serif;
+  color: var(--texto);
+  background: var(--fondo);
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; }
+.barra { display: flex; align-items: center; gap: 16px; padding: 12px 24px; background: var(--azul); color: #fff; }
+.logo { height: 32px; }
+.producto { font-weight: 600; }
+.usuario { margin-left: auto; font-size: 14px; }
+.contenido { flex: 1; display: flex; justify-content: center; padding: 24px; }
+.tarjeta { background: #fff; border-radius: 16px; padding: 32px; box-shadow: 0 8px 32px rgba(20, 33, 61, 0.08); }
+.ingreso { width: 100%; max-width: 380px; align-self: flex-start; }
+.ingreso form { display: flex; flex-direction: column; gap: 8px; }
+input { font: inherit; padding: 10px 12px; border: 1px solid var(--borde); border-radius: 8px; }
+button { font: inherit; padding: 10px 16px; border: 0; border-radius: 8px; background: var(--azul); color: #fff; cursor: pointer; }
+button.cancelar { background: #fff; color: var(--azul); border: 1px solid var(--azul); }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--naranja); outline-offset: 2px; }
+.error { color: #b42318; }
+.chat { width: 100%; max-width: 860px; display: flex; flex-direction: column; gap: 12px; }
+.mensajes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; flex: 1; }
+.mensaje { max-width: 80%; padding: 12px 16px; border-radius: 16px; background: #fff; border: 1px solid var(--borde); }
+.mensaje.persona { align-self: flex-end; background: var(--azul); color: #fff; border-color: var(--azul); }
+.mensaje .texto { margin: 0; white-space: pre-wrap; }
+.fuentes { margin: 8px 0 0; padding-left: 18px; font-size: 13px; color: var(--suave); }
+.fuentes:empty { display: none; }
+.pasos { margin-top: 8px; font-size: 13px; color: var(--suave); }
+.pasos summary { cursor: pointer; font-weight: 600; color: var(--azul); }
+.lista-pasos { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.lista-pasos .no-encontrado { color: #b42318; }
+.accion { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.resumen { width: 100%; margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; }
+.resumen dt { font-weight: 600; }
+.sugerencias { display: flex; flex-wrap: wrap; gap: 8px; }
+.sugerencias button { background: #fff; color: var(--azul); border: 1px solid var(--azul); border-radius: 999px; font-size: 14px; }
+.entrada { display: flex; gap: 8px; }
+.entrada input { flex: 1; }
+.oculto { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }

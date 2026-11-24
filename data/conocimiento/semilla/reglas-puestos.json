@@ -1,0 +1,14 @@
+{
+  "knowledgeId": "KN-SYN-DOC-0001",
+  "version": 1,
+  "lang": "es",
+  "status": "PUBLISHED",
+  "classification": "GENERAL",
+  "validUntil": "2027-12-31",
+  "updatedAt": "2026-11-02T10:00:00Z",
+  "type": "DOCUMENT",
+  "title": "Horarios y reglas de uso de los puestos de trabajo",
+  "owner": "Equipo Workplace",
+  "tags": ["horario", "reglas", "puesto", "politica", "uso"],
+  "body": "Cada colaborador puede tener un solo puesto reservado por día. Las sedes abren de lunes a viernes de 7:00 a 19:00 y los sábados de 8:00 a 13:00. Si no registras tu llegada antes de las 10:00, la reserva del puesto se libera automáticamente. Los puestos se pueden reservar con hasta 14 días de anticipación. Al terminar la jornada deja el puesto limpio y sin objetos personales."
+}

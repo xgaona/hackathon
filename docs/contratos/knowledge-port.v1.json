@@ -1,0 +1,41 @@
+{
+  "$id": "knowledge-port.v1",
+  "title": "KnowledgePortV1",
+  "description": "C3: consulta de conocimiento con citas. Toda consulta al índice lleva el filtro classification == GENERAL.",
+  "type": "object",
+  "definitions": {
+    "QueryRequest": {
+      "title": "QueryRequest",
+      "type": "object",
+      "required": ["correlationId", "userId", "question"],
+      "properties": {
+        "correlationId": { "type": "string" },
+        "userId": { "type": "string" },
+        "question": { "type": "string", "maxLength": 2000 }
+      }
+    },
+    "Citation": {
+      "title": "Citation",
+      "type": "object",
+      "required": ["title", "origin", "connectorId"],
+      "properties": {
+        "title": { "type": "string" },
+        "url": { "type": "string" },
+        "origin": { "enum": ["eva", "index", "live", "mock"] },
+        "connectorId": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "QueryResult": {
+      "title": "QueryResult",
+      "type": "object",
+      "required": ["correlationId", "citations", "liveSearch"],
+      "properties": {
+        "correlationId": { "type": "string" },
+        "passages": { "type": "array", "items": { "type": "string" } },
+        "citations": { "type": "array", "items": { "$ref": "#/definitions/Citation" } },
+        "liveSearch": { "enum": ["OK", "UNAVAILABLE", "NOT_REQUESTED"] }
+      }
+    }
+  }
+}

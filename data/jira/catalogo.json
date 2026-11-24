@@ -1,0 +1,27 @@
+{
+  "connectorId": "jira",
+  "version": "1.0.0",
+  "status": "ACTIVE",
+  "capabilities": [
+    {
+      "capabilityId": "jira:issue.search",
+      "connectorId": "jira",
+      "mode": "READ",
+      "risk": "LOW",
+      "permissions": [],
+      "status": "ACTIVE",
+      "paramsSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["OPEN", "ALL"],
+            "description": "OPEN: solo tareas no terminadas (por defecto); ALL: todas"
+          },
+          "project": { "type": "string", "description": "Clave del proyecto, p. ej. EVA" }
+        },
+        "additionalProperties": false
+      }
+    }
+  ]
+}

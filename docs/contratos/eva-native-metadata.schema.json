@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://eva.redeban.internal/schemas/eva-native-metadata/v1",
+  "title": "Metadatos del contenido propio de EVA (eva-native) v1",
+  "description": "Registro de un ítem de la base de conocimiento propia. Lo crean y publican solo Administradores de EVA (RF-16). Todo el contenido es de uso general y visible para todos los colaboradores (RS-19). La ingesta deriva de este registro el archivo <objeto>.metadata.json de Bedrock Knowledge Bases.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["knowledgeId", "version", "type", "title", "lang", "status", "classification", "owner", "validUntil", "updatedAt", "body"],
+  "properties": {
+    "knowledgeId": { "type": "string", "pattern": "^KN-[A-Z0-9-]{3,40}$" },
+    "version": { "type": "integer", "minimum": 1 },
+    "type": { "enum": ["DOCUMENT", "ROUTE", "TIP"] },
+    "subtype": { "enum": ["PROCESS", "PHYSICAL"], "description": "Obligatorio solo cuando type = ROUTE." },
+    "title": { "type": "string", "minLength": 3, "maxLength": 200 },
+    "lang": { "enum": ["es", "en"] },
+    "status": { "enum": ["DRAFT", "PUBLISHED", "EXPIRED", "RETIRED"] },
+    "classification": { "const": "GENERAL", "description": "El contenido propio solo puede ser de uso general (RS-19)." },
+    "owner": { "type": "string", "description": "Área o administrador responsable. No se usan nombres de personas.", "maxLength": 120 },
+    "tags": { "type": "array", "maxItems": 10, "items": { "type": "string", "maxLength": 40 } },
+    "validUntil": { "type": "string", "format": "date", "description": "Al alcanzarse, el ítem pasa a EXPIRED y se retira del índice." },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "publishedBy": { "type": "string", "description": "Hash del identificador del administrador que publicó (auditoría)." },
+    "body": { "type": "string", "minLength": 10, "maxLength": 50000, "description": "Contenido en Markdown." },
+    "relatedCapability": {
+      "type": "string",
+      "pattern": "^[a-z]+(\\.[a-zA-Z]+)+$",
+      "description": "Solo ROUTE/PROCESS: capacidad del catálogo que EVA puede ofrecer ejecutar, siempre vía Policy Engine (RF-16.9)."
+    },
+    "relatedConnectorId": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,30}$" },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 30,
+      "items": { "type": "string", "minLength": 3, "maxLength": 500 }
+    },
+    "physical": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["siteName", "floor", "origin", "destination"],
+      "properties": {
+        "siteName": { "type": "string", "maxLength": 120 },
+        "relatedSiteId": { "type": "string", "pattern": "^SITE-[A-Z0-9-]{2,20}$", "description": "Sede en Skkeda (RF-16.8)." },
+        "relatedSpaceId": { "type": "string", "maxLength": 60, "description": "Espacio o zona en Skkeda." },
+        "floor": { "type": "integer", "minimum": 0, "maximum": 99 },
+        "origin": { "type": "string", "maxLength": 200 },
+        "destination": { "type": "string", "maxLength": 200 },
+        "imageKey": { "type": "string", "maxLength": 300 },
+        "imageAlt": { "type": "string", "minLength": 10, "maxLength": 500 }
+      },
+      "dependentRequired": { "imageKey": ["imageAlt"] }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "const": "ROUTE" } } },
+      "then": { "required": ["subtype", "steps"] },
+      "else": { "not": { "anyOf": [{ "required": ["subtype"] }, { "required": ["physical"] }] } }
+    },
+    {
+      "if": { "properties": { "type": { "const": "ROUTE" }, "subtype": { "const": "PHYSICAL" } }, "required": ["type", "subtype"] },
+      "then": { "required": ["physical"] }
+    },
+    {
+      "if": { "properties": { "subtype": { "const": "PROCESS" } }, "required": ["subtype"] },
+      "then": { "not": { "required": ["physical"] } }
+    },
+    {
+      "if": { "properties": { "type": { "const": "TIP" } } },
+      "then": { "properties": { "body": { "maxLength": 1000 } } }
+    }
+  ],
+  "examples": [
+    {
+      "knowledgeId": "KN-ROUTE-PHY-0001",
+      "version": 2,
+      "type": "ROUTE",
+      "subtype": "PHYSICAL",
+      "title": "Cómo llegar a la zona de puestos del piso 4 - Sede Norte",
+      "lang": "es",
+      "status": "PUBLISHED",
+      "classification": "GENERAL",
+      "owner": "Equipo Workplace",
+      "tags": ["sede-norte", "puestos"],
+      "validUntil": "2027-06-30",
+      "updatedAt": "2026-10-10T10:00:00Z",
+      "body": "Desde la recepción principal, toma los ascensores B hasta el piso 4.",
+      "steps": [
+        "Registra tu ingreso en la recepción principal.",
+        "Toma los ascensores B hasta el piso 4.",
+        "Gira a la derecha; la zona de puestos 4-001 a 4-040 está junto a las ventanas."
+      ],
+      "physical": {
+        "siteName": "Sede Norte",
+        "relatedSiteId": "SITE-BOG-01",
+        "relatedSpaceId": "ZONE-BOG01-4-A",
+        "floor": 4,
+        "origin": "Recepción principal",
+        "destination": "Zona de puestos 4-001 a 4-040",
+        "imageKey": "media/sede-norte-piso4.png",
+        "imageAlt": "Plano del piso 4: ascensores B al centro y zona de puestos al costado oriental."
+      }
+    }
+  ]
+}

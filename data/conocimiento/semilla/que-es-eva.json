@@ -1,0 +1,14 @@
+{
+  "knowledgeId": "KN-SYN-DOC-0003",
+  "version": 1,
+  "lang": "es",
+  "status": "PUBLISHED",
+  "classification": "GENERAL",
+  "validUntil": "2027-12-31",
+  "updatedAt": "2026-11-02T10:00:00Z",
+  "type": "DOCUMENT",
+  "title": "Qué es EVA y qué no hace",
+  "owner": "Equipo EVA",
+  "tags": ["eva", "asistente", "ayuda", "alcance", "limites"],
+  "body": "EVA es el asistente virtual corporativo que reúne en un solo chat las aplicaciones que ya usas: Skkeda para reservas, Daruma para documentos y Jira para tareas. EVA responde preguntas con contenido publicado y siempre te muestra de dónde sale la respuesta. Antes de crear o cambiar algo en otra aplicación, EVA te pide confirmación. EVA no reemplaza esas aplicaciones, no aprueba solicitudes y no modifica documentos de Daruma. EVA tampoco te muestra información a la que no tienes permiso."
+}

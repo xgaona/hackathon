@@ -1,0 +1,22 @@
+{
+  "knowledgeId": "KN-SYN-RUTA-0002",
+  "version": 1,
+  "lang": "es",
+  "status": "PUBLISHED",
+  "classification": "GENERAL",
+  "validUntil": "2027-12-31",
+  "updatedAt": "2026-11-02T10:00:00Z",
+  "type": "ROUTE",
+  "subtype": "PROCESS",
+  "title": "Cómo reservar una sala de reuniones en Skkeda",
+  "owner": "Equipo Workplace",
+  "tags": ["reservar", "reserva", "sala", "reunion", "skkeda"],
+  "body": "Las salas de reuniones también se reservan en Skkeda. Dile a EVA la sede, la fecha, la hora de inicio, la duración y cuántas personas asistirán. EVA te propone las salas libres con capacidad suficiente. La reserva se crea solo después de que confirmas el resumen. Las salas se reservan por bloques de 30 minutos y hasta por 4 horas seguidas.",
+  "steps": [
+    "Indica sede, fecha, hora y duración.",
+    "Indica el número de asistentes.",
+    "Elige una sala de las propuestas y confirma."
+  ],
+  "relatedConnectorId": "skkeda",
+  "relatedCapability": "booking.create"
+}
