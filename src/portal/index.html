@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- Boilerplate del kit: estructura del portal. La lógica va en app.js (spec infra-y-portal). No renombrar los id. -->
+<!-- Portal de EVA. La lógica va en app.js (spec infra-y-portal). No renombrar los id. -->
 <html lang="es">
   <head>
     <meta charset="utf-8" />
@@ -10,35 +10,89 @@
   <body>
     <header class="barra">
       <img src="assets/logo-redeban-blanco.png" alt="Redeban" class="logo" />
-      <span class="producto">EVA · Asistente virtual</span>
+      <span class="separador" aria-hidden="true"></span>
+      <span class="producto"><strong>EVA</strong> · Asistente colaborativo</span>
+      <span class="lema">El conocimiento<br />nos conecta</span>
       <span id="usuario-activo" class="usuario" hidden></span>
     </header>
 
     <main class="contenido">
-      <section id="vista-ingreso" class="tarjeta ingreso" aria-labelledby="titulo-ingreso">
-        <h1 id="titulo-ingreso">Ingresa a EVA</h1>
-        <form id="form-ingreso" autocomplete="off">
-          <label for="usuario">Usuario</label>
-          <input id="usuario" name="usuario" required />
-          <label for="clave">Contraseña</label>
-          <input id="clave" name="clave" type="password" required />
-          <button type="submit">Ingresar</button>
-          <p id="error-ingreso" class="error" role="alert" hidden></p>
-        </form>
+      <section class="hero" aria-labelledby="titulo-hero">
+        <div class="hero-texto">
+          <span class="insignia">✦ Tu aliada en el día a día</span>
+          <h1 id="titulo-hero">Hola, soy EVA<br /><span class="degradado">Juntos hacemos más.</span></h1>
+          <p class="bajada">Tu aliada para conectar conocimiento, simplificar tareas y colaborar en Redeban.</p>
+          <ul class="valores">
+            <li>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 11a3 3 0 1 0-3-3 3 3 0 0 0 3 3Zm-8 0a3 3 0 1 0-3-3 3 3 0 0 0 3 3Zm0 2c-2.7 0-6 1.3-6 3.5V19h12v-2.5C14 14.3 10.7 13 8 13Zm8 0c-.4 0-.8 0-1.2.1A4.6 4.6 0 0 1 16 16.5V19h6v-2.5c0-2.2-3.3-3.5-6-3.5Z" /></svg>
+              <span>Personas<br />más conectadas</span>
+            </li>
+            <li>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21h6v-1H9v1Zm3-19a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2Zm2.5 11.4-.5.3V15h-4v-1.3l-.5-.3a5 5 0 1 1 5 0Z" /></svg>
+              <span>Procesos<br />más simples</span>
+            </li>
+            <li>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h3V11H4v9Zm6.5 0h3V4h-3v16ZM17 20h3v-6h-3v6Z" /></svg>
+              <span>Un equipo<br />más fuerte</span>
+            </li>
+          </ul>
+
+          <section id="vista-ingreso" class="tarjeta ingreso" aria-labelledby="titulo-ingreso">
+            <h2 id="titulo-ingreso">Ingresa a EVA</h2>
+            <form id="form-ingreso" autocomplete="off">
+              <label for="usuario">Usuario</label>
+              <input id="usuario" name="usuario" required />
+              <label for="clave">Contraseña</label>
+              <input id="clave" name="clave" type="password" required />
+              <button type="submit">Ingresar</button>
+              <p id="error-ingreso" class="error" role="alert" hidden></p>
+            </form>
+          </section>
+        </div>
+        <div class="hero-imagen">
+          <img src="assets/eva-hero.jpg" alt="EVA, el robot asistente de Redeban, saludando" />
+        </div>
       </section>
 
       <section id="vista-chat" class="chat" aria-label="Conversación con EVA" hidden>
+        <div class="atajos" role="group" aria-label="Qué puedo hacer">
+          <button type="button" class="atajo" data-pregunta="Ayúdame a buscar el archivo de gestión de cambios">
+            <span class="icono azul"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.8l-.3-.3a6.5 6.5 0 1 0-.7.7l.3.3v.8l5 5 1.5-1.5-5-5Zm-6 0a4.5 4.5 0 1 1 4.5-4.5A4.5 4.5 0 0 1 9.5 14Z" /></svg></span>
+            <span class="atajo-texto"><strong>Encuentra información</strong><small>Documentos y procesos</small></span>
+            <span class="flecha" aria-hidden="true">›</span>
+          </button>
+          <button type="button" class="atajo" data-pregunta="Hola, ayúdame a reservar un puesto en el piso 3">
+            <span class="icono morado"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2Zm0 16H5V9h14v11ZM7 11h5v5H7v-5Z" /></svg></span>
+            <span class="atajo-texto"><strong>Organiza tu día</strong><small>Reservas y solicitudes</small></span>
+            <span class="flecha" aria-hidden="true">›</span>
+          </button>
+          <button type="button" class="atajo" data-pregunta="Ayúdame a buscar mis tareas abiertas en Jira">
+            <span class="icono rojo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8Zm-1.2-5.6-2.9-2.9-1.4 1.4 4.3 4.3 7-7-1.4-1.4-5.6 5.6Z" /></svg></span>
+            <span class="atajo-texto"><strong>Gestiona tus tareas</strong><small>Pendientes y proyectos</small></span>
+            <span class="flecha" aria-hidden="true">›</span>
+          </button>
+          <button type="button" class="atajo" data-pregunta="¿Cuántos días antes debo pedir un viaje nacional?">
+            <span class="icono verde"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 11a3 3 0 1 0-3-3 3 3 0 0 0 3 3Zm-8 0a3 3 0 1 0-3-3 3 3 0 0 0 3 3Zm0 2c-2.7 0-6 1.3-6 3.5V19h12v-2.5C14 14.3 10.7 13 8 13Zm8 0c-.4 0-.8 0-1.2.1A4.6 4.6 0 0 1 16 16.5V19h6v-2.5c0-2.2-3.3-3.5-6-3.5Z" /></svg></span>
+            <span class="atajo-texto"><strong>Conecta con tu equipo</strong><small>Políticas y conocimiento</small></span>
+            <span class="flecha" aria-hidden="true">›</span>
+          </button>
+        </div>
+
         <ol id="mensajes" class="mensajes" aria-live="polite"></ol>
         <div id="sugerencias" class="sugerencias" role="group" aria-label="Sugerencias"></div>
         <form id="form-mensaje" class="entrada">
+          <button type="button" id="boton-voz" class="voz" aria-pressed="false" aria-label="Hablar con EVA" hidden>🎤</button>
           <label for="mensaje" class="oculto">Escribe tu mensaje</label>
-          <input id="mensaje" name="mensaje" placeholder="Pregúntale a EVA…" autocomplete="off" required />
-          <button type="button" id="boton-voz" class="voz" aria-pressed="false" hidden>🎤 Hablar</button>
-          <button type="button" id="boton-silencio" class="voz" aria-pressed="false" hidden>🔊 Voz activa</button>
-          <button type="submit">Enviar</button>
+          <input id="mensaje" name="mensaje" placeholder="¿Qué podemos resolver juntos hoy?" autocomplete="off" required />
+          <button type="button" id="boton-silencio" class="voz" aria-pressed="false" aria-label="Voz de EVA activa" hidden>🔊</button>
+          <button type="submit" class="enviar" aria-label="Enviar">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20.5 21 12 3 3.5 3 10l12 2-12 2v6.5Z" /></svg>
+          </button>
         </form>
       </section>
     </main>
+
+    <footer class="pie">Conocimiento conectado. <strong>Trabajo más simple.</strong></footer>
 
     <template id="plantilla-mensaje">
       <li class="mensaje">
