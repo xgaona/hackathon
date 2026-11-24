@@ -172,7 +172,7 @@ describe('búsqueda de investigación', () => {
     sim.agente.responder = (consulta) =>
       consulta === 'Con fuente'
         ? Promise.resolve([DOCUMENTO])
-        : new Promise<ResultadoKb[]>((resolve) => setTimeout(() => resolve([]), LIMITE_INVESTIGACION_MS + 5_000));
+        : new Promise<ResultadoKb[]>(() => undefined);
     sim.bedrock.colaRespuestas.push('El viático nacional es de COP 280.000 por día [1].');
     const inicio = Date.now();
 
@@ -189,7 +189,6 @@ describe('búsqueda de investigación', () => {
     expect(salida.researchSteps?.[0]).toMatchObject({ encontrado: true });
     expect(salida.researchSteps?.[1]).toMatchObject({ encontrado: false, reformulada: false });
     verificarLlamadas(sim);
-    await jest.runOnlyPendingTimersAsync();
   });
 
   it('el corte duro también limita Converse y Guardrails de la síntesis', async () => {
@@ -201,7 +200,7 @@ describe('búsqueda de investigación', () => {
     sim.bedrock.converse = async (entrada: ConverseCommandInput) => {
       if (!entrada.system?.[0]?.text?.startsWith(MARCA_RESPUESTA)) return converseOriginal(entrada);
       sim.bedrock.llamadasConverse.push(entrada);
-      return new Promise((resolve) => setTimeout(() => resolve({} as never), LIMITE_INVESTIGACION_MS + 5_000));
+      return new Promise<never>(() => undefined);
     };
     const inicio = Date.now();
 
@@ -213,7 +212,6 @@ describe('búsqueda de investigación', () => {
     expect(salida.status).toBe('NO_ANSWER');
     expect(sim.bedrock.llamadasGuardrail).toHaveLength(0);
     verificarLlamadas(sim);
-    await jest.runOnlyPendingTimersAsync();
   });
 
   it('el corte duro también limita un Guardrail de salida pendiente', async () => {
@@ -225,7 +223,7 @@ describe('búsqueda de investigación', () => {
     sim.bedrock.applyGuardrail = async (entrada) => {
       const texto = (entrada.content?.[0] as { text?: { text?: string } } | undefined)?.text?.text ?? '';
       sim.bedrock.llamadasGuardrail.push({ fuente: String(entrada.source), texto });
-      return new Promise((resolve) => setTimeout(() => resolve({ action: 'NONE' } as never), LIMITE_INVESTIGACION_MS + 5_000));
+      return new Promise<never>(() => undefined);
     };
     const inicio = Date.now();
 
@@ -237,7 +235,6 @@ describe('búsqueda de investigación', () => {
     expect(salida.status).toBe('NO_ANSWER');
     expect(sim.bedrock.llamadasGuardrail).toHaveLength(1);
     verificarLlamadas(sim);
-    await jest.runOnlyPendingTimersAsync();
   });
 
   it('researchSteps solo contiene subpregunta, estado y títulos; nunca el texto del pasaje', async () => {
