@@ -36,10 +36,18 @@
   const plantilla = document.querySelector('#plantilla-mensaje');
   const botonIngreso = formIngreso.querySelector('button[type="submit"]');
   const botonEnviar = formMensaje.querySelector('button[type="submit"]');
+  const botonVoz = document.querySelector('#boton-voz');
+  const botonSilencio = document.querySelector('#boton-silencio');
+  const MENSAJE_VOZ = 'No pude usar la voz, escribe tu pregunta.';
+  const FRECUENCIA_VOZ = 16000;
+  const MAX_SEGUNDOS_VOZ = 15;
 
   let token = null;
   let conversationId = null;
   let config = null;
+  let vozLeida = true;
+  let audioActual = null;
+  let grabacion = null;
 
   function mostrarErrorIngreso(texto) {
     errorIngreso.textContent = texto;
@@ -56,10 +64,13 @@
     vistaChat.hidden = false;
     usuarioActivo.textContent = nombreUsuario;
     usuarioActivo.hidden = false;
+    botonVoz.hidden = !config?.voz;
+    botonSilencio.hidden = !config?.voz;
     campoMensaje.focus();
   }
 
   function volverAlIngreso(mensaje = MENSAJE_SESION) {
+    detenerLectura();
     token = null;
     conversationId = null;
     clave.value = '';
@@ -263,6 +274,134 @@
     dibujarResumen(burbuja, respuesta);
     mensajes.append(fragmento);
     llevarAlFinal();
+    if (typeof respuesta?.reply === 'string') void leerEnVoz(respuesta.reply);
+  }
+
+  // ---- Voz (solo si config.voz): Transcribe para entrar, Polly para salir. El audio no se guarda. ----
+
+  function detenerLectura() {
+    if (audioActual) {
+      audioActual.pause();
+      audioActual = null;
+    }
+  }
+
+  async function leerEnVoz(texto) {
+    if (!config?.voz || !vozLeida || !token || !texto) return;
+    try {
+      const { audio } = await llamarEva('/v1/voz/sintetizar', { texto });
+      if (typeof audio !== 'string' || !audio || !vozLeida) return;
+      detenerLectura();
+      audioActual = new Audio(`data:audio/mpeg;base64,${audio}`);
+      await audioActual.play();
+    } catch {
+      // La lectura en voz es un extra: si falla, el texto ya está en pantalla.
+    }
+  }
+
+  function aPcm16(muestras, frecuenciaOrigen) {
+    const razon = frecuenciaOrigen / FRECUENCIA_VOZ;
+    const largo = Math.floor(muestras.length / razon);
+    const salida = new DataView(new ArrayBuffer(largo * 2));
+    for (let i = 0; i < largo; i += 1) {
+      const inicio = Math.floor(i * razon);
+      const fin = Math.min(muestras.length, Math.floor((i + 1) * razon));
+      let suma = 0;
+      for (let j = inicio; j < fin; j += 1) suma += muestras[j];
+      const valor = Math.max(-1, Math.min(1, suma / Math.max(1, fin - inicio)));
+      salida.setInt16(i * 2, valor < 0 ? valor * 0x8000 : valor * 0x7fff, true);
+    }
+    return new Uint8Array(salida.buffer);
+  }
+
+  function aBase64(bytes) {
+    let binario = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+      binario += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    }
+    return btoa(binario);
+  }
+
+  async function empezarGrabacion() {
+    detenerLectura();
+    const flujo = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true } });
+    const contexto = new AudioContext();
+    const fuente = contexto.createMediaStreamSource(flujo);
+    const procesador = contexto.createScriptProcessor(4096, 1, 1);
+    const trozos = [];
+    let total = 0;
+    procesador.onaudioprocess = (e) => {
+      const datos = e.inputBuffer.getChannelData(0);
+      trozos.push(new Float32Array(datos));
+      total += datos.length;
+      if (total >= contexto.sampleRate * MAX_SEGUNDOS_VOZ) void terminarGrabacion();
+    };
+    fuente.connect(procesador);
+    procesador.connect(contexto.destination);
+    grabacion = { flujo, contexto, fuente, procesador, trozos };
+    botonVoz.setAttribute('aria-pressed', 'true');
+    botonVoz.textContent = '⏹ Detener';
+  }
+
+  async function terminarGrabacion() {
+    const actual = grabacion;
+    if (!actual) return;
+    grabacion = null;
+    botonVoz.setAttribute('aria-pressed', 'false');
+    botonVoz.textContent = '🎤 Hablar';
+    actual.procesador.disconnect();
+    actual.fuente.disconnect();
+    actual.flujo.getTracks().forEach((pista) => pista.stop());
+    const frecuencia = actual.contexto.sampleRate;
+    await actual.contexto.close();
+
+    const total = actual.trozos.reduce((n, t) => n + t.length, 0);
+    const limite = Math.min(total, frecuencia * MAX_SEGUNDOS_VOZ);
+    const muestras = new Float32Array(limite);
+    let posicion = 0;
+    for (const trozo of actual.trozos) {
+      if (posicion >= limite) break;
+      const parte = trozo.subarray(0, limite - posicion);
+      muestras.set(parte, posicion);
+      posicion += parte.length;
+    }
+    if (muestras.length < frecuencia / 2) return;
+
+    botonVoz.disabled = true;
+    campoMensaje.placeholder = 'Transcribiendo…';
+    try {
+      const { texto } = await llamarEva('/v1/voz/transcribir', { audio: aBase64(aPcm16(muestras, frecuencia)) });
+      if (typeof texto === 'string' && texto.trim()) {
+        void enviarMensaje(texto.trim());
+      } else {
+        dibujarEva({ reply: 'No te escuché bien. ¿Puedes repetirlo?' });
+      }
+    } catch (error) {
+      if (!error?.sesionVencida) dibujarEva({ reply: MENSAJE_VOZ });
+    } finally {
+      botonVoz.disabled = false;
+      campoMensaje.placeholder = 'Pregúntale a EVA…';
+    }
+  }
+
+  async function alternarGrabacion() {
+    if (grabacion) {
+      await terminarGrabacion();
+      return;
+    }
+    try {
+      await empezarGrabacion();
+    } catch {
+      grabacion = null;
+      dibujarEva({ reply: MENSAJE_VOZ });
+    }
+  }
+
+  function alternarLectura() {
+    vozLeida = !vozLeida;
+    if (!vozLeida) detenerLectura();
+    botonSilencio.textContent = vozLeida ? '🔊 Voz activa' : '🔇 Voz apagada';
+    botonSilencio.setAttribute('aria-pressed', String(!vozLeida));
   }
 
   async function enviarMensaje(texto) {
@@ -318,6 +457,8 @@
 
   formIngreso.addEventListener('submit', ingresar);
   formMensaje.addEventListener('submit', enviarFormulario);
+  botonVoz.addEventListener('click', () => void alternarGrabacion());
+  botonSilencio.addEventListener('click', alternarLectura);
   cargarSugerencias();
 
   botonIngreso.disabled = true;

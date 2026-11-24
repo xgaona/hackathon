@@ -45,4 +45,6 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--naranja); o
 .sugerencias button { background: #fff; color: var(--azul); border: 1px solid var(--azul); border-radius: 999px; font-size: 14px; }
 .entrada { display: flex; gap: 8px; }
 .entrada input { flex: 1; }
+button.voz { background: #fff; color: var(--azul); border: 1px solid var(--azul); }
+button.voz[aria-pressed='true'] { background: var(--naranja); color: var(--azul-oscuro); border-color: var(--naranja); }
 .oculto { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }

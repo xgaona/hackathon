@@ -37,6 +37,8 @@ export const DESCRIPCION_VERSION_GUARDRAIL = 'v1: standard, misconduct LOW en en
 
 export class EvaStack extends Stack {
   readonly ambiente: string;
+  /** Canal de voz (Transcribe y Polly), solo con -c voz=true. */
+  readonly vozActiva: boolean;
 
   private userPool!: cognito.UserPool;
   private cliente!: cognito.UserPoolClient;
@@ -47,6 +49,7 @@ export class EvaStack extends Stack {
   constructor(scope: Construct, id: string, props: EvaStackProps) {
     super(scope, id, props);
     this.ambiente = props.ambiente;
+    this.vozActiva = investigacionActiva(this.node.tryGetContext('voz')) === 'true';
 
     this.identidad();
     this.tablaEstado();
@@ -148,9 +151,25 @@ export class EvaStack extends Stack {
       authorizationType: apigateway.AuthorizationType.COGNITO,
     };
 
-    const conversaciones = this.api.root.addResource('v1').addResource('conversations');
+    const v1 = this.api.root.addResource('v1');
+    const conversaciones = v1.addResource('conversations');
     conversaciones.addMethod('POST', integracion, opciones);
     conversaciones.addResource('{id}').addResource('confirm').addMethod('POST', integracion, opciones);
+
+    if (this.vozActiva) {
+      // Canal de voz opcional: Transcribe y Polly son solo entrada y salida; el flujo sigue en /v1/conversations.
+      const funcionVoz = this.lambdaNode('Voz', 'voz', 'src/voz/handler.ts', Duration.seconds(20));
+      funcionVoz.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ['polly:SynthesizeSpeech', 'transcribe:StartStreamTranscription'],
+          resources: ['*'],
+        }),
+      );
+      const integracionVoz = new apigateway.LambdaIntegration(funcionVoz);
+      const voz = v1.addResource('voz');
+      voz.addResource('transcribir').addMethod('POST', integracionVoz, opciones);
+      voz.addResource('sintetizar').addMethod('POST', integracionVoz, opciones);
+    }
 
     new CfnOutput(this, 'ApiUrl', { value: this.api.url });
   }
@@ -171,6 +190,7 @@ export class EvaStack extends Stack {
           contentSecurityPolicy: [
             "default-src 'self'",
             "img-src 'self' data:",
+            "media-src 'self' blob: data:",
             "style-src 'self'",
             "script-src 'self'",
             `connect-src 'self' https://cognito-idp.${this.region}.amazonaws.com`,
@@ -213,6 +233,7 @@ export class EvaStack extends Stack {
           region: this.region,
           userPoolId: this.userPool.userPoolId,
           userPoolClientId: this.cliente.userPoolClientId,
+          voz: this.vozActiva,
         }),
       ],
       distribution: distribucion,

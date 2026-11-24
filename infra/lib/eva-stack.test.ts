@@ -499,3 +499,23 @@ describe('Seguridad transversal', () => {
     }
   });
 });
+
+describe('Canal de voz opcional (voz=true)', () => {
+  it('sin voz=true no existe la Lambda eva-dev-voz', () => {
+    const nombres = Object.values(sintetizar().findResources('AWS::Lambda::Function')).map(
+      (f) => f.Properties.FunctionName,
+    );
+    expect(nombres).not.toContain('eva-dev-voz');
+  });
+
+  it('con voz=true crea eva-dev-voz con permisos solo de Polly y Transcribe', () => {
+    const plantilla = sintetizar({ voz: 'true' });
+    plantilla.hasResourceProperties('AWS::Lambda::Function', { FunctionName: 'eva-dev-voz' });
+    const acciones = declaraciones(plantilla).flatMap((d) => d.acciones);
+    expect(acciones).toEqual(
+      expect.arrayContaining(['polly:SynthesizeSpeech', 'transcribe:StartStreamTranscription']),
+    );
+    plantilla.hasResourceProperties('AWS::ApiGateway::Resource', { PathPart: 'transcribir' });
+    plantilla.hasResourceProperties('AWS::ApiGateway::Resource', { PathPart: 'sintetizar' });
+  });
+});
